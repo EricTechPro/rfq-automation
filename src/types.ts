@@ -182,3 +182,114 @@ export interface CombinedScrapeResult {
   dibbsError: string | null;
   wbpartsError: string | null;
 }
+
+// ============================================
+// Supplier Contact Types (Firecrawl Integration)
+// ============================================
+
+/**
+ * Contact person at a supplier
+ */
+export interface ContactPerson {
+  name?: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+}
+
+/**
+ * Supplier contact information extracted via Firecrawl
+ */
+export interface SupplierContact {
+  /** Company name */
+  companyName: string;
+
+  /** Primary email address */
+  email: string | null;
+
+  /** Primary phone number */
+  phone: string | null;
+
+  /** Physical address */
+  address: string | null;
+
+  /** Company website URL */
+  website: string | null;
+
+  /** Contact page URL */
+  contactPage: string | null;
+
+  /** Additional contact persons found */
+  additionalContacts: ContactPerson[];
+
+  /** Data source */
+  source: "firecrawl_search" | "firecrawl_scrape" | "manual";
+
+  /** Confidence level */
+  confidence: "high" | "medium" | "low";
+
+  /** Timestamp of extraction */
+  scrapedAt: string;
+}
+
+/**
+ * Supplier with RFQ data and contact info combined
+ */
+export interface SupplierWithContact {
+  companyName: string;
+  cageCode: string;
+  partNumber: string;
+  contact: SupplierContact | null;
+}
+
+/**
+ * Enhanced RFQ result with supplier contacts
+ */
+export interface EnhancedRFQResult {
+  /** National Stock Number */
+  nsn: string;
+
+  /** Item name/nomenclature */
+  itemName: string;
+
+  /** Whether RFQ is open */
+  hasOpenRFQ: boolean;
+
+  /** Suppliers with contact information */
+  suppliers: SupplierWithContact[];
+
+  /** Raw data from scrapers */
+  rawData: {
+    dibbs: RFQData | null;
+    wbparts: WBPartsData | null;
+  };
+
+  /** Workflow status */
+  workflow: {
+    dibbsStatus: "success" | "error" | "skipped";
+    wbpartsStatus: "success" | "error" | "skipped";
+    firecrawlStatus: "success" | "error" | "skipped" | "partial";
+  };
+
+  /** Timestamp */
+  scrapedAt: string;
+}
+
+/**
+ * Firecrawl search result
+ */
+export interface FirecrawlSearchResult {
+  url: string;
+  title: string;
+  description: string;
+}
+
+/**
+ * Firecrawl extracted contact data
+ */
+export interface FirecrawlExtractedContact {
+  emails: string[];
+  phones: string[];
+  address: string | null;
+  contactPersons: ContactPerson[];
+}

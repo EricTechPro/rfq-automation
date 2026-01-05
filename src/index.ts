@@ -2,23 +2,36 @@
 /**
  * RFQ Automation CLI
  *
- * Multi-source NSN/RFQ scraper supporting DIBBS and WBParts.
+ * Multi-source NSN/RFQ scraper supporting DIBBS, WBParts, and Firecrawl contact discovery.
  *
  * Usage:
- *   npx tsx src/index.ts <NSN>                    # DIBBS only (default)
- *   npx tsx src/index.ts <NSN> --wbparts          # Both DIBBS and WBParts
- *   npx tsx src/index.ts <NSN> --wbparts-only     # WBParts only
- *   npx tsx src/index.ts <NSN1>,<NSN2>            # Batch mode
+ *   npx tsx src/index.ts <NSN>                         # DIBBS only (default)
+ *   npx tsx src/index.ts <NSN> --wbparts               # Both DIBBS and WBParts
+ *   npx tsx src/index.ts <NSN> --wbparts-only          # WBParts only
+ *   npx tsx src/index.ts <NSN> --contacts              # Include primary supplier contact
+ *   npx tsx src/index.ts <NSN> --contacts --all        # Include all suppliers' contacts
+ *   npx tsx src/index.ts <NSN1>,<NSN2>                 # Batch mode
  */
 
-import { scrapeDIBBS, scrapeDIBBSBatch } from "./dibbs-scraper.js";
-import { scrapeWBParts, scrapeWBPartsBatch } from "./wbparts-scraper.js";
-import type { CombinedRFQData, CombinedScrapeResult } from "./types.js";
+import { scrapeDIBBS } from "./dibbs-scraper.js";
+import { scrapeWBParts } from "./wbparts-scraper.js";
+import { findSupplierContact } from "./firecrawl-client.js";
+import { config } from "./config.js";
+import type {
+  CombinedRFQData,
+  CombinedScrapeResult,
+  EnhancedRFQResult,
+  SupplierWithContact,
+  ApprovedSource,
+  WBPartsManufacturer,
+} from "./types.js";
 
 interface CLIOptions {
   nsns: string[];
   wbparts: boolean;
   wbpartsOnly: boolean;
+  contacts: boolean;
+  allContacts: boolean;
   help: boolean;
 }
 
@@ -27,6 +40,8 @@ function parseArgs(args: string[]): CLIOptions {
     nsns: [],
     wbparts: false,
     wbpartsOnly: false,
+    contacts: false,
+    allContacts: false,
     help: false,
   };
 
@@ -37,6 +52,10 @@ function parseArgs(args: string[]): CLIOptions {
       options.wbparts = true;
     } else if (arg === "--wbparts-only" || arg === "-W") {
       options.wbpartsOnly = true;
+    } else if (arg === "--contacts" || arg === "-c") {
+      options.contacts = true;
+    } else if (arg === "--all" || arg === "-a") {
+      options.allContacts = true;
     } else if (!arg.startsWith("-")) {
       // NSN input (could be comma-separated)
       const nsns = arg.split(",").map((n) => n.trim()).filter(Boolean);
@@ -52,28 +71,35 @@ function showHelp(): void {
 RFQ Automation Scraper
 ======================
 
-Scrapes NSN/RFQ data from DIBBS (primary) and WBParts (secondary).
+Scrapes NSN/RFQ data from DIBBS (primary), WBParts (secondary),
+and discovers supplier contacts via Firecrawl.
 
 Usage:
   npx tsx src/index.ts <NSN>                    Scrape from DIBBS only
   npx tsx src/index.ts <NSN> --wbparts          Scrape from both sources
   npx tsx src/index.ts <NSN> --wbparts-only     Scrape from WBParts only
+  npx tsx src/index.ts <NSN> --contacts         Include primary supplier contact
+  npx tsx src/index.ts <NSN> --contacts --all   Include all suppliers' contacts
   npx tsx src/index.ts <NSN1>,<NSN2>            Batch mode (comma-separated)
   npx tsx src/index.ts --help                   Show this help
 
 Options:
   -w, --wbparts       Include WBParts data (combined output)
   -W, --wbparts-only  Only scrape from WBParts
+  -c, --contacts      Discover supplier contact info via Firecrawl
+  -a, --all           With --contacts: look up all suppliers (not just primary)
   -h, --help          Show help
 
 Data Sources:
-  DIBBS    https://www.dibbs.bsm.dla.mil  (OPEN status, solicitations)
-  WBParts  https://www.wbparts.com        (manufacturer details, specs)
+  DIBBS      https://www.dibbs.bsm.dla.mil  (OPEN status, solicitations)
+  WBParts    https://www.wbparts.com        (manufacturer details, specs)
+  Firecrawl  https://firecrawl.dev          (supplier website & contacts)
 
 Examples:
   npx tsx src/index.ts 4520-01-261-9675
   npx tsx src/index.ts 4520-01-261-9675 --wbparts
-  npx tsx src/index.ts 4520-01-261-9675,4030-01-097-6471 --wbparts
+  npx tsx src/index.ts 4520-01-261-9675 --contacts
+  npx tsx src/index.ts 4520-01-261-9675 --wbparts --contacts --all
 
 Output:
   JSON to stdout with:
@@ -83,6 +109,11 @@ Output:
   - Solicitations (DIBBS)
   - Technical Specs (WBParts)
   - hasOpenRFQ status
+  - Supplier contact info (with --contacts)
+
+Environment Variables:
+  FIRECRAWL_API_KEY   Required for --contacts flag
+  See .env.example for all options
 `);
 }
 
@@ -155,27 +186,194 @@ function combineResults(
   };
 }
 
+/**
+ * Get unique suppliers from DIBBS and WBParts data
+ */
+function getUniqueSuppliers(
+  dibbsSources: ApprovedSource[],
+  wbpartsMfrs: WBPartsManufacturer[]
+): Array<{ companyName: string; cageCode: string; partNumber: string }> {
+  const seen = new Set<string>();
+  const suppliers: Array<{
+    companyName: string;
+    cageCode: string;
+    partNumber: string;
+  }> = [];
+
+  // Add from DIBBS first (primary source)
+  for (const source of dibbsSources) {
+    const key = `${source.companyName}|${source.cageCode}`;
+    if (!seen.has(key) && source.companyName) {
+      seen.add(key);
+      suppliers.push({
+        companyName: source.companyName,
+        cageCode: source.cageCode,
+        partNumber: source.partNumber,
+      });
+    }
+  }
+
+  // Add from WBParts
+  for (const mfr of wbpartsMfrs) {
+    const key = `${mfr.companyName}|${mfr.cageCode}`;
+    if (!seen.has(key) && mfr.companyName) {
+      seen.add(key);
+      suppliers.push({
+        companyName: mfr.companyName,
+        cageCode: mfr.cageCode,
+        partNumber: mfr.partNumber,
+      });
+    }
+  }
+
+  return suppliers;
+}
+
+/**
+ * Scrape single NSN with optional contact discovery
+ */
 async function scrapeSingle(
   nsn: string,
   options: CLIOptions
 ): Promise<unknown> {
-  if (options.wbpartsOnly) {
-    // WBParts only
-    console.error(`Scraping WBParts for NSN: ${nsn}...`);
-    return await scrapeWBParts(nsn);
-  } else if (options.wbparts) {
-    // Both sources
+  // Determine which scrapers to run
+  const runDibbs = !options.wbpartsOnly;
+  const runWbparts = options.wbparts || options.wbpartsOnly;
+
+  let dibbsResult: Awaited<ReturnType<typeof scrapeDIBBS>> = {
+    success: false,
+    data: null,
+    error: "Skipped",
+  };
+  let wbpartsResult: Awaited<ReturnType<typeof scrapeWBParts>> = {
+    success: false,
+    data: null,
+    error: "Skipped",
+  };
+
+  // Run scrapers
+  if (runDibbs && runWbparts) {
     console.error(`Scraping DIBBS + WBParts for NSN: ${nsn}...`);
-    const [dibbsResult, wbpartsResult] = await Promise.all([
+    [dibbsResult, wbpartsResult] = await Promise.all([
       scrapeDIBBS(nsn),
       scrapeWBParts(nsn),
     ]);
-    return combineResults(dibbsResult, wbpartsResult);
-  } else {
-    // DIBBS only (default)
+  } else if (runDibbs) {
     console.error(`Scraping DIBBS for NSN: ${nsn}...`);
-    return await scrapeDIBBS(nsn);
+    dibbsResult = await scrapeDIBBS(nsn);
+  } else if (runWbparts) {
+    console.error(`Scraping WBParts for NSN: ${nsn}...`);
+    wbpartsResult = await scrapeWBParts(nsn);
   }
+
+  // If no contacts requested, return basic result
+  if (!options.contacts) {
+    if (options.wbpartsOnly) {
+      return wbpartsResult;
+    } else if (options.wbparts) {
+      return combineResults(dibbsResult, wbpartsResult);
+    } else {
+      return dibbsResult;
+    }
+  }
+
+  // === Contact Discovery Flow ===
+  console.error("Starting supplier contact discovery...");
+
+  // Get all suppliers
+  const dibbsSources = dibbsResult.data?.approvedSources || [];
+  const wbpartsMfrs = wbpartsResult.data?.manufacturers || [];
+  const allSuppliers = getUniqueSuppliers(dibbsSources, wbpartsMfrs);
+
+  // Determine which suppliers to look up
+  const suppliersToLookup = options.allContacts
+    ? allSuppliers
+    : allSuppliers.slice(0, 1); // Primary only
+
+  console.error(
+    `Looking up contacts for ${suppliersToLookup.length} supplier(s)...`
+  );
+
+  // Look up contacts
+  const suppliersWithContacts: SupplierWithContact[] = [];
+  let firecrawlStatus: "success" | "error" | "skipped" | "partial" = "skipped";
+  let successCount = 0;
+
+  for (const supplier of suppliersToLookup) {
+    try {
+      const contact = await findSupplierContact(
+        supplier.companyName,
+        supplier.cageCode
+      );
+
+      suppliersWithContacts.push({
+        companyName: supplier.companyName,
+        cageCode: supplier.cageCode,
+        partNumber: supplier.partNumber,
+        contact,
+      });
+
+      if (contact.confidence !== "low") {
+        successCount++;
+      }
+
+      // Rate limiting
+      await new Promise((resolve) =>
+        setTimeout(resolve, config.rateLimit.batchDelay)
+      );
+    } catch (error) {
+      console.error(
+        `Failed to get contact for ${supplier.companyName}:`,
+        error
+      );
+      suppliersWithContacts.push({
+        companyName: supplier.companyName,
+        cageCode: supplier.cageCode,
+        partNumber: supplier.partNumber,
+        contact: null,
+      });
+    }
+  }
+
+  // Determine firecrawl status
+  if (suppliersToLookup.length === 0) {
+    firecrawlStatus = "skipped";
+  } else if (successCount === suppliersToLookup.length) {
+    firecrawlStatus = "success";
+  } else if (successCount > 0) {
+    firecrawlStatus = "partial";
+  } else {
+    firecrawlStatus = "error";
+  }
+
+  // Build enhanced result
+  const enhancedResult: EnhancedRFQResult = {
+    nsn: dibbsResult.data?.nsn || wbpartsResult.data?.nsn || nsn,
+    itemName:
+      wbpartsResult.data?.itemName || dibbsResult.data?.nomenclature || "",
+    hasOpenRFQ: dibbsResult.data?.hasOpenRFQs ?? false,
+    suppliers: suppliersWithContacts,
+    rawData: {
+      dibbs: dibbsResult.data,
+      wbparts: wbpartsResult.data,
+    },
+    workflow: {
+      dibbsStatus: runDibbs
+        ? dibbsResult.success
+          ? "success"
+          : "error"
+        : "skipped",
+      wbpartsStatus: runWbparts
+        ? wbpartsResult.success
+          ? "success"
+          : "error"
+        : "skipped",
+      firecrawlStatus,
+    },
+    scrapedAt: new Date().toISOString(),
+  };
+
+  return enhancedResult;
 }
 
 async function scrapeBatch(
@@ -190,7 +388,9 @@ async function scrapeBatch(
     results.push(result);
 
     // Small delay between requests
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) =>
+      setTimeout(resolve, config.rateLimit.batchDelay)
+    );
   }
 
   return results;

@@ -14,9 +14,7 @@ import type {
   WBPartsTechSpec,
   WBPartsDemand,
 } from "./types.js";
-
-const WBPARTS_BASE_URL = "https://www.wbparts.com/rfq";
-const DEFAULT_TIMEOUT = 30000;
+import { config } from "./config.js";
 
 /**
  * Format NSN with dashes for WBParts URL
@@ -68,7 +66,7 @@ async function extractBasicInfo(
       assignmentDate = dateMatch[1].trim();
     }
   } catch (error) {
-    console.log("Could not extract basic info:", error);
+    console.error("Could not extract basic info:", error);
   }
 
   return { itemName, incCode, assignmentDate };
@@ -92,7 +90,7 @@ async function extractPartAlternates(page: Page): Promise<string[]> {
       alternates.push(...parts.map((p) => p.trim()));
     }
   } catch (error) {
-    console.log("Could not extract part alternates:", error);
+    console.error("Could not extract part alternates:", error);
   }
 
   return alternates;
@@ -140,7 +138,7 @@ async function extractManufacturers(page: Page): Promise<WBPartsManufacturer[]> 
       }
     }
   } catch (error) {
-    console.log("Could not extract manufacturers:", error);
+    console.error("Could not extract manufacturers:", error);
   }
 
   return manufacturers;
@@ -179,7 +177,7 @@ async function extractTechSpecs(page: Page): Promise<WBPartsTechSpec[]> {
       }
     }
   } catch (error) {
-    console.log("Could not extract tech specs:", error);
+    console.error("Could not extract tech specs:", error);
   }
 
   return specs;
@@ -231,7 +229,7 @@ async function extractDemandHistory(page: Page): Promise<WBPartsDemand[]> {
       }
     }
   } catch (error) {
-    console.log("Could not extract demand history:", error);
+    console.error("Could not extract demand history:", error);
   }
 
   return demands;
@@ -242,30 +240,29 @@ async function extractDemandHistory(page: Page): Promise<WBPartsDemand[]> {
  */
 export async function scrapeWBParts(nsn: string): Promise<WBPartsScrapeResult> {
   const formattedNSN = formatNSNWithDashes(nsn);
-  const url = `${WBPARTS_BASE_URL}/${formattedNSN}.html`;
+  const url = `${config.urls.wbparts}/${formattedNSN}.html`;
 
-  console.log(`Scraping WBParts for NSN: ${nsn}`);
-  console.log(`URL: ${url}`);
+  console.error(`Scraping WBParts for NSN: ${nsn}`);
+  console.error(`URL: ${url}`);
 
   let browser: Browser | null = null;
   let context: BrowserContext | null = null;
 
   try {
     browser = await chromium.launch({
-      headless: true,
+      headless: config.browser.headless,
     });
 
     context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      userAgent: config.browser.userAgent,
     });
 
     const page = await context.newPage();
 
-    console.log("Navigating to WBParts...");
+    console.error("Navigating to WBParts...");
     const response = await page.goto(url, {
       waitUntil: "domcontentloaded",
-      timeout: DEFAULT_TIMEOUT,
+      timeout: config.timeouts.scrape,
     });
 
     // Check for 404 or other errors
@@ -280,7 +277,7 @@ export async function scrapeWBParts(nsn: string): Promise<WBPartsScrapeResult> {
     // Wait for content to load
     await page.waitForLoadState("networkidle");
 
-    console.log("Extracting WBParts data...");
+    console.error("Extracting WBParts data...");
 
     // Extract all data
     const { itemName, incCode, assignmentDate } = await extractBasicInfo(page);
@@ -302,7 +299,7 @@ export async function scrapeWBParts(nsn: string): Promise<WBPartsScrapeResult> {
       scrapedAt: new Date().toISOString(),
     };
 
-    console.log("WBParts data extracted successfully.");
+    console.error("WBParts data extracted successfully.");
 
     return {
       success: true,
@@ -337,7 +334,7 @@ export async function scrapeWBPartsBatch(
     results.push(result);
 
     // Small delay between requests
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, config.rateLimit.batchDelay * 2));
   }
 
   return results;

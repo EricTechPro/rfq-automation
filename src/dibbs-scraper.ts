@@ -12,10 +12,7 @@ import type {
   ApprovedSource,
   Solicitation,
 } from "./types.js";
-
-const DIBBS_BASE_URL = "https://www.dibbs.bsm.dla.mil/rfq/rfqnsn.aspx";
-const DEFAULT_TIMEOUT = 30000;
-const MAX_RETRIES = 3;
+import { config } from "./config.js";
 
 /**
  * Format NSN by removing dashes for URL parameter
@@ -39,17 +36,17 @@ async function handleConsentBanner(page: Page): Promise<boolean> {
       .catch(() => false);
 
     if (isVisible) {
-      console.log("Consent banner detected, clicking OK...");
+      console.error("Consent banner detected, clicking OK...");
       await okButton.click();
       await page.waitForLoadState("networkidle");
-      console.log("Consent accepted, page loaded.");
+      console.error("Consent accepted, page loaded.");
       return true;
     }
 
-    console.log("No consent banner found (may already be accepted).");
+    console.error("No consent banner found (may already be accepted).");
     return false;
   } catch (error) {
-    console.log("No consent banner interaction needed.");
+    console.error("No consent banner interaction needed.");
     return false;
   }
 }
@@ -127,7 +124,7 @@ async function extractApprovedSources(page: Page): Promise<ApprovedSource[]> {
       }
     }
   } catch (error) {
-    console.log("Could not extract approved sources:", error);
+    console.error("Could not extract approved sources:", error);
   }
 
   return sources;
@@ -189,7 +186,7 @@ async function extractSolicitations(page: Page): Promise<Solicitation[]> {
       }
     }
   } catch (error) {
-    console.log("Could not extract solicitations:", error);
+    console.error("Could not extract solicitations:", error);
   }
 
   return solicitations;
@@ -241,10 +238,10 @@ async function extractRFQData(page: Page, sourceUrl: string): Promise<RFQData> {
  */
 export async function scrapeDIBBS(nsn: string): Promise<ScrapeResult> {
   const formattedNSN = formatNSN(nsn);
-  const url = `${DIBBS_BASE_URL}?value=${formattedNSN}`;
+  const url = `${config.urls.dibbs}?value=${formattedNSN}`;
 
-  console.log(`Scraping DIBBS for NSN: ${nsn}`);
-  console.log(`URL: ${url}`);
+  console.error(`Scraping DIBBS for NSN: ${nsn}`);
+  console.error(`URL: ${url}`);
 
   let browser: Browser | null = null;
   let context: BrowserContext | null = null;
@@ -252,21 +249,20 @@ export async function scrapeDIBBS(nsn: string): Promise<ScrapeResult> {
   try {
     // Launch browser in headless mode
     browser = await chromium.launch({
-      headless: true,
+      headless: config.browser.headless,
     });
 
     context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      userAgent: config.browser.userAgent,
     });
 
     const page = await context.newPage();
 
     // Navigate to DIBBS
-    console.log("Navigating to DIBBS...");
+    console.error("Navigating to DIBBS...");
     await page.goto(url, {
       waitUntil: "networkidle",
-      timeout: DEFAULT_TIMEOUT,
+      timeout: config.timeouts.scrape,
     });
 
     // Handle consent banner
@@ -275,20 +271,20 @@ export async function scrapeDIBBS(nsn: string): Promise<ScrapeResult> {
     // Retry logic for pages that need refresh
     let data: RFQData | null = null;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      console.log(`Extraction attempt ${attempt}/${MAX_RETRIES}...`);
+    for (let attempt = 1; attempt <= config.retry.maxRetries; attempt++) {
+      console.error(`Extraction attempt ${attempt}/${config.retry.maxRetries}...`);
 
       data = await extractRFQData(page, url);
 
       // Check if we got meaningful data
       if (data.nsn || data.approvedSources.length > 0 || data.solicitations.length > 0) {
-        console.log("Data extracted successfully.");
+        console.error("Data extracted successfully.");
         break;
       }
 
       // If no data, try refreshing (DIBBS sometimes needs this)
-      if (attempt < MAX_RETRIES) {
-        console.log("No data found, refreshing page...");
+      if (attempt < config.retry.maxRetries) {
+        console.error("No data found, refreshing page...");
         await page.reload();
         await page.waitForLoadState("networkidle");
         await handleConsentBanner(page);
@@ -330,7 +326,7 @@ export async function scrapeDIBBSBatch(nsns: string[]): Promise<ScrapeResult[]> 
     results.push(result);
 
     // Small delay between requests to be respectful
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, config.rateLimit.batchDelay * 2));
   }
 
   return results;
