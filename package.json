@@ -1,0 +1,22 @@
+{
+  "name": "dibbs-scraper",
+  "version": "1.0.0",
+  "description": "Playwright-based scraper for DIBBS RFQ data",
+  "main": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "scrape": "tsx src/index.ts"
+  },
+  "keywords": ["dibbs", "rfq", "scraper", "playwright"],
+  "author": "Eric Tech",
+  "license": "MIT",
+  "dependencies": {
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
