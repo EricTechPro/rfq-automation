@@ -14,40 +14,35 @@ This tool scrapes Request for Quote (RFQ) data from multiple sources and discove
 
 ```mermaid
 flowchart TD
-    subgraph Input
-        A[NSN Input] --> B{Parse NSN}
-    end
+    A[NSN Input] --> B[Parse NSN]
 
-    subgraph "Phase 1: RFQ Status Check"
+    subgraph Phase1[Phase 1 - RFQ Status Check]
         B --> C[DIBBS Scraper]
         C --> D{RFQ OPEN?}
-        D -->|No| E[Return: NOT OPEN]
+        D -->|No| E[Return NOT OPEN]
         D -->|Yes| F[Extract Suppliers]
     end
 
-    subgraph "Phase 2: Supplier Details"
+    subgraph Phase2[Phase 2 - Supplier Details]
         F --> G[WBParts Scraper]
         G --> H[Manufacturer List]
-        H --> I[Company Names + CAGE Codes]
+        H --> I[Company Names and CAGE Codes]
     end
 
-    subgraph "Phase 3: Contact Discovery"
+    subgraph Phase3[Phase 3 - Contact Discovery]
         I --> J[Firecrawl Search API]
         J --> K{Website Found?}
         K -->|Yes| L[Firecrawl Scrape API]
         K -->|No| M[Fallback Search]
         M --> L
         L --> N[Extract Contact Info]
-        N --> O[Email, Phone, Address]
+        N --> O[Email Phone Address]
     end
 
-    subgraph Output
+    subgraph Phase4[Output]
         O --> P[Combined JSON Result]
-        P --> Q[n8n / Automation]
+        P --> Q[n8n Automation]
     end
-
-    style D fill:#f9f,stroke:#333
-    style O fill:#9f9,stroke:#333
 ```
 
 ## Features
