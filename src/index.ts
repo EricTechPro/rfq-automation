@@ -2,17 +2,19 @@
 /**
  * RFQ Automation CLI
  *
- * Multi-source NSN/RFQ scraper supporting DIBBS, WBParts, and Firecrawl contact discovery.
+ * Multi-source NSN/RFQ scraper with automatic contact discovery for OPEN RFQs.
+ * Results are saved to JSON files in the results/ directory.
  *
  * Usage:
- *   npx tsx src/index.ts <NSN>                         # DIBBS only (default)
- *   npx tsx src/index.ts <NSN> --wbparts               # Both DIBBS and WBParts
- *   npx tsx src/index.ts <NSN> --wbparts-only          # WBParts only
- *   npx tsx src/index.ts <NSN> --contacts              # Include primary supplier contact
- *   npx tsx src/index.ts <NSN> --contacts --all        # Include all suppliers' contacts
- *   npx tsx src/index.ts <NSN1>,<NSN2>                 # Batch mode
+ *   npx tsx src/index.ts <NSN>                    # Auto-discovers contacts if OPEN
+ *   npx tsx src/index.ts <NSN> --no-contacts      # Skip contact discovery
+ *   npx tsx src/index.ts <NSN> --wbparts          # Include WBParts data
+ *   npx tsx src/index.ts <NSN1>,<NSN2>            # Batch mode
  */
 
+import { writeFile, mkdir } from "fs/promises";
+import { existsSync } from "fs";
+import { join } from "path";
 import { scrapeDIBBS } from "./dibbs-scraper.js";
 import { scrapeWBParts } from "./wbparts-scraper.js";
 import { findSupplierContact } from "./firecrawl-client.js";
@@ -30,8 +32,10 @@ interface CLIOptions {
   nsns: string[];
   wbparts: boolean;
   wbpartsOnly: boolean;
-  contacts: boolean;
+  noContacts: boolean;
+  forceContacts: boolean;
   allContacts: boolean;
+  outputDir: string;
   help: boolean;
 }
 
@@ -40,22 +44,29 @@ function parseArgs(args: string[]): CLIOptions {
     nsns: [],
     wbparts: false,
     wbpartsOnly: false,
-    contacts: false,
+    noContacts: false,
+    forceContacts: false,
     allContacts: false,
+    outputDir: "./results",
     help: false,
   };
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (arg === "--help" || arg === "-h") {
       options.help = true;
     } else if (arg === "--wbparts" || arg === "-w") {
       options.wbparts = true;
     } else if (arg === "--wbparts-only" || arg === "-W") {
       options.wbpartsOnly = true;
+    } else if (arg === "--no-contacts") {
+      options.noContacts = true;
     } else if (arg === "--contacts" || arg === "-c") {
-      options.contacts = true;
+      options.forceContacts = true;
     } else if (arg === "--all" || arg === "-a") {
       options.allContacts = true;
+    } else if (arg === "--output" || arg === "-o") {
+      options.outputDir = args[++i] || "./results";
     } else if (!arg.startsWith("-")) {
       // NSN input (could be comma-separated)
       const nsns = arg.split(",").map((n) => n.trim()).filter(Boolean);
@@ -71,24 +82,30 @@ function showHelp(): void {
 RFQ Automation Scraper
 ======================
 
-Scrapes NSN/RFQ data from DIBBS (primary), WBParts (secondary),
-and discovers supplier contacts via Firecrawl.
+Scrapes NSN/RFQ data from DIBBS and automatically discovers supplier contacts
+when an OPEN RFQ is found. Results are saved to JSON files.
 
 Usage:
-  npx tsx src/index.ts <NSN>                    Scrape from DIBBS only
-  npx tsx src/index.ts <NSN> --wbparts          Scrape from both sources
-  npx tsx src/index.ts <NSN> --wbparts-only     Scrape from WBParts only
-  npx tsx src/index.ts <NSN> --contacts         Include primary supplier contact
-  npx tsx src/index.ts <NSN> --contacts --all   Include all suppliers' contacts
+  npx tsx src/index.ts <NSN>                    Scrape and auto-discover contacts if OPEN
+  npx tsx src/index.ts <NSN> --no-contacts      Skip contact discovery
+  npx tsx src/index.ts <NSN> --contacts         Force contact discovery even if NOT OPEN
+  npx tsx src/index.ts <NSN> --wbparts          Include WBParts data
   npx tsx src/index.ts <NSN1>,<NSN2>            Batch mode (comma-separated)
   npx tsx src/index.ts --help                   Show this help
 
 Options:
-  -w, --wbparts       Include WBParts data (combined output)
-  -W, --wbparts-only  Only scrape from WBParts
-  -c, --contacts      Discover supplier contact info via Firecrawl
-  -a, --all           With --contacts: look up all suppliers (not just primary)
+  -w, --wbparts       Include WBParts data (manufacturer details, specs)
+  -W, --wbparts-only  Only scrape from WBParts (skip DIBBS)
+  --no-contacts       Skip contact discovery even if RFQ is OPEN
+  -c, --contacts      Force contact discovery even if RFQ is NOT OPEN
+  -a, --all           Look up all suppliers (not just primary)
+  -o, --output <dir>  Output directory (default: ./results)
   -h, --help          Show help
+
+Automatic Behavior:
+  - When RFQ is OPEN: Automatically searches for supplier contacts via Firecrawl
+  - When RFQ is NOT OPEN: Skips contact discovery (use --contacts to override)
+  - Results saved to: ./results/<NSN>.json
 
 Data Sources:
   DIBBS      https://www.dibbs.bsm.dla.mil  (OPEN status, solicitations)
@@ -98,21 +115,11 @@ Data Sources:
 Examples:
   npx tsx src/index.ts 4520-01-261-9675
   npx tsx src/index.ts 4520-01-261-9675 --wbparts
-  npx tsx src/index.ts 4520-01-261-9675 --contacts
-  npx tsx src/index.ts 4520-01-261-9675 --wbparts --contacts --all
-
-Output:
-  JSON to stdout with:
-  - NSN, Nomenclature, Item Name
-  - Approved Sources / Manufacturers
-  - CAGE Codes, Part Numbers
-  - Solicitations (DIBBS)
-  - Technical Specs (WBParts)
-  - hasOpenRFQ status
-  - Supplier contact info (with --contacts)
+  npx tsx src/index.ts 4520-01-261-9675 --no-contacts
+  npx tsx src/index.ts 4520-01-261-9675 --contacts --all
 
 Environment Variables:
-  FIRECRAWL_API_KEY   Required for --contacts flag
+  FIRECRAWL_API_KEY   Required for contact discovery
   See .env.example for all options
 `);
 }
@@ -127,7 +134,6 @@ function combineResults(
   const dibbs = dibbsResult.data;
   const wbparts = wbpartsResult.data;
 
-  // Determine primary company
   let primaryCompany: string | null = null;
   let primaryCageCode: string | null = null;
 
@@ -139,7 +145,6 @@ function combineResults(
     primaryCageCode = wbparts.manufacturers[0].cageCode;
   }
 
-  // Collect all company names and CAGE codes
   const companyNames: Set<string> = new Set();
   const cageCodes: Set<string> = new Set();
   const partNumbers: Set<string> = new Set();
@@ -200,7 +205,6 @@ function getUniqueSuppliers(
     partNumber: string;
   }> = [];
 
-  // Add from DIBBS first (primary source)
   for (const source of dibbsSources) {
     const key = `${source.companyName}|${source.cageCode}`;
     if (!seen.has(key) && source.companyName) {
@@ -213,7 +217,6 @@ function getUniqueSuppliers(
     }
   }
 
-  // Add from WBParts
   for (const mfr of wbpartsMfrs) {
     const key = `${mfr.companyName}|${mfr.cageCode}`;
     if (!seen.has(key) && mfr.companyName) {
@@ -230,12 +233,33 @@ function getUniqueSuppliers(
 }
 
 /**
- * Scrape single NSN with optional contact discovery
+ * Save result to JSON file
+ */
+async function saveResult(
+  nsn: string,
+  result: unknown,
+  outputDir: string
+): Promise<string> {
+  // Create output directory if it doesn't exist
+  if (!existsSync(outputDir)) {
+    await mkdir(outputDir, { recursive: true });
+  }
+
+  const filename = `${nsn}.json`;
+  const filepath = join(outputDir, filename);
+
+  await writeFile(filepath, JSON.stringify(result, null, 2), "utf-8");
+
+  return filepath;
+}
+
+/**
+ * Scrape single NSN with automatic contact discovery for OPEN RFQs
  */
 async function scrapeSingle(
   nsn: string,
   options: CLIOptions
-): Promise<unknown> {
+): Promise<{ result: EnhancedRFQResult; filepath: string }> {
   // Determine which scrapers to run
   const runDibbs = !options.wbpartsOnly;
   const runWbparts = options.wbparts || options.wbpartsOnly;
@@ -266,66 +290,88 @@ async function scrapeSingle(
     wbpartsResult = await scrapeWBParts(nsn);
   }
 
-  // If no contacts requested, return basic result
-  if (!options.contacts) {
-    if (options.wbpartsOnly) {
-      return wbpartsResult;
-    } else if (options.wbparts) {
-      return combineResults(dibbsResult, wbpartsResult);
-    } else {
-      return dibbsResult;
-    }
-  }
-
-  // === Contact Discovery Flow ===
-  console.error("Starting supplier contact discovery...");
+  // Determine if we should run contact discovery
+  const hasOpenRFQ = dibbsResult.data?.hasOpenRFQs ?? false;
+  const shouldRunContacts =
+    !options.noContacts && (hasOpenRFQ || options.forceContacts);
 
   // Get all suppliers
   const dibbsSources = dibbsResult.data?.approvedSources || [];
   const wbpartsMfrs = wbpartsResult.data?.manufacturers || [];
   const allSuppliers = getUniqueSuppliers(dibbsSources, wbpartsMfrs);
 
-  // Determine which suppliers to look up
-  const suppliersToLookup = options.allContacts
-    ? allSuppliers
-    : allSuppliers.slice(0, 1); // Primary only
-
-  console.error(
-    `Looking up contacts for ${suppliersToLookup.length} supplier(s)...`
-  );
-
-  // Look up contacts
+  // Contact discovery
   const suppliersWithContacts: SupplierWithContact[] = [];
   let firecrawlStatus: "success" | "error" | "skipped" | "partial" = "skipped";
-  let successCount = 0;
 
-  for (const supplier of suppliersToLookup) {
-    try {
-      const contact = await findSupplierContact(
-        supplier.companyName,
-        supplier.cageCode
-      );
+  if (shouldRunContacts && allSuppliers.length > 0) {
+    console.error(
+      `RFQ is ${hasOpenRFQ ? "OPEN" : "NOT OPEN (forced)"} - Starting contact discovery...`
+    );
 
-      suppliersWithContacts.push({
-        companyName: supplier.companyName,
-        cageCode: supplier.cageCode,
-        partNumber: supplier.partNumber,
-        contact,
-      });
+    const suppliersToLookup = options.allContacts
+      ? allSuppliers
+      : allSuppliers.slice(0, 1);
 
-      if (contact.confidence !== "low") {
-        successCount++;
+    console.error(
+      `Looking up contacts for ${suppliersToLookup.length} supplier(s)...`
+    );
+
+    let successCount = 0;
+
+    for (const supplier of suppliersToLookup) {
+      try {
+        const contact = await findSupplierContact(
+          supplier.companyName,
+          supplier.cageCode
+        );
+
+        suppliersWithContacts.push({
+          companyName: supplier.companyName,
+          cageCode: supplier.cageCode,
+          partNumber: supplier.partNumber,
+          contact,
+        });
+
+        if (contact.confidence !== "low") {
+          successCount++;
+        }
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, config.rateLimit.batchDelay)
+        );
+      } catch (error) {
+        console.error(
+          `Failed to get contact for ${supplier.companyName}:`,
+          error
+        );
+        suppliersWithContacts.push({
+          companyName: supplier.companyName,
+          cageCode: supplier.cageCode,
+          partNumber: supplier.partNumber,
+          contact: null,
+        });
       }
+    }
 
-      // Rate limiting
-      await new Promise((resolve) =>
-        setTimeout(resolve, config.rateLimit.batchDelay)
-      );
-    } catch (error) {
-      console.error(
-        `Failed to get contact for ${supplier.companyName}:`,
-        error
-      );
+    if (suppliersToLookup.length === 0) {
+      firecrawlStatus = "skipped";
+    } else if (successCount === suppliersToLookup.length) {
+      firecrawlStatus = "success";
+    } else if (successCount > 0) {
+      firecrawlStatus = "partial";
+    } else {
+      firecrawlStatus = "error";
+    }
+  } else {
+    // No contact discovery - just list suppliers without contact info
+    console.error(
+      hasOpenRFQ
+        ? "Contact discovery skipped (--no-contacts flag)"
+        : "RFQ is NOT OPEN - Skipping contact discovery"
+    );
+
+    for (const supplier of allSuppliers) {
       suppliersWithContacts.push({
         companyName: supplier.companyName,
         cageCode: supplier.cageCode,
@@ -335,23 +381,12 @@ async function scrapeSingle(
     }
   }
 
-  // Determine firecrawl status
-  if (suppliersToLookup.length === 0) {
-    firecrawlStatus = "skipped";
-  } else if (successCount === suppliersToLookup.length) {
-    firecrawlStatus = "success";
-  } else if (successCount > 0) {
-    firecrawlStatus = "partial";
-  } else {
-    firecrawlStatus = "error";
-  }
-
-  // Build enhanced result
-  const enhancedResult: EnhancedRFQResult = {
+  // Build result
+  const result: EnhancedRFQResult = {
     nsn: dibbsResult.data?.nsn || wbpartsResult.data?.nsn || nsn,
     itemName:
       wbpartsResult.data?.itemName || dibbsResult.data?.nomenclature || "",
-    hasOpenRFQ: dibbsResult.data?.hasOpenRFQs ?? false,
+    hasOpenRFQ,
     suppliers: suppliersWithContacts,
     rawData: {
       dibbs: dibbsResult.data,
@@ -373,21 +408,32 @@ async function scrapeSingle(
     scrapedAt: new Date().toISOString(),
   };
 
-  return enhancedResult;
+  // Save to file
+  const filepath = await saveResult(nsn, result, options.outputDir);
+  console.error(`Result saved to: ${filepath}`);
+
+  return { result, filepath };
 }
 
 async function scrapeBatch(
   nsns: string[],
   options: CLIOptions
-): Promise<unknown[]> {
-  console.error(`Batch mode: Scraping ${nsns.length} NSNs...`);
-  const results: unknown[] = [];
+): Promise<Array<{ nsn: string; filepath: string; hasOpenRFQ: boolean }>> {
+  console.error(`Batch mode: Processing ${nsns.length} NSNs...`);
+  const results: Array<{
+    nsn: string;
+    filepath: string;
+    hasOpenRFQ: boolean;
+  }> = [];
 
   for (const nsn of nsns) {
-    const result = await scrapeSingle(nsn, options);
-    results.push(result);
+    const { result, filepath } = await scrapeSingle(nsn, options);
+    results.push({
+      nsn,
+      filepath,
+      hasOpenRFQ: result.hasOpenRFQ,
+    });
 
-    // Small delay between requests
     await new Promise((resolve) =>
       setTimeout(resolve, config.rateLimit.batchDelay)
     );
@@ -405,16 +451,48 @@ async function main(): Promise<void> {
     process.exit(options.help ? 0 : 1);
   }
 
-  let result: unknown;
+  console.error("=".repeat(50));
+  console.error("RFQ Automation Scraper");
+  console.error("=".repeat(50));
 
   if (options.nsns.length === 1) {
-    result = await scrapeSingle(options.nsns[0], options);
-  } else {
-    result = await scrapeBatch(options.nsns, options);
-  }
+    const { result, filepath } = await scrapeSingle(options.nsns[0], options);
 
-  // Output JSON to stdout
-  console.log(JSON.stringify(result, null, 2));
+    console.error("\n" + "=".repeat(50));
+    console.error("SUMMARY");
+    console.error("=".repeat(50));
+    console.error(`NSN: ${result.nsn}`);
+    console.error(`Item: ${result.itemName}`);
+    console.error(`RFQ Status: ${result.hasOpenRFQ ? "OPEN" : "NOT OPEN"}`);
+    console.error(`Suppliers: ${result.suppliers.length}`);
+    console.error(`Output: ${filepath}`);
+
+    if (result.suppliers.length > 0 && result.suppliers[0].contact) {
+      const contact = result.suppliers[0].contact;
+      console.error("\nPrimary Contact:");
+      console.error(`  Company: ${contact.companyName}`);
+      if (contact.email) console.error(`  Email: ${contact.email}`);
+      if (contact.phone) console.error(`  Phone: ${contact.phone}`);
+      if (contact.website) console.error(`  Website: ${contact.website}`);
+    }
+
+    // Also output JSON to stdout for piping
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    const results = await scrapeBatch(options.nsns, options);
+
+    console.error("\n" + "=".repeat(50));
+    console.error("BATCH SUMMARY");
+    console.error("=".repeat(50));
+
+    for (const r of results) {
+      console.error(
+        `${r.nsn}: ${r.hasOpenRFQ ? "OPEN" : "NOT OPEN"} -> ${r.filepath}`
+      );
+    }
+
+    console.log(JSON.stringify(results, null, 2));
+  }
 }
 
 // Run main

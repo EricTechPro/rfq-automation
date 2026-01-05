@@ -29,6 +29,9 @@ Thumbs.db
 # Test coverage
 coverage/
 
+# Results output
+results/
+
 # Temp files
 *.tmp
 *.temp

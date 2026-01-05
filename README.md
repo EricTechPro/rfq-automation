@@ -19,36 +19,43 @@ flowchart TD
     subgraph Phase1[Phase 1 - RFQ Status Check]
         B --> C[DIBBS Scraper]
         C --> D{RFQ OPEN?}
-        D -->|No| E[Return NOT OPEN]
-        D -->|Yes| F[Extract Suppliers]
     end
 
-    subgraph Phase2[Phase 2 - Supplier Details]
-        F --> G[WBParts Scraper]
-        G --> H[Manufacturer List]
-        H --> I[Company Names and CAGE Codes]
+    D -->|No| E[Skip Contacts]
+    D -->|Yes| F[Auto-Trigger Contacts]
+
+    subgraph Phase2[Phase 2 - Contact Discovery]
+        F --> G[Extract Supplier List]
+        G --> H[Firecrawl Search API]
+        H --> I{Website Found?}
+        I -->|Yes| J[Firecrawl Scrape API]
+        I -->|No| K[Fallback Search]
+        K --> J
+        J --> L[Extract Contact Info]
+        L --> M[Email Phone Address]
     end
 
-    subgraph Phase3[Phase 3 - Contact Discovery]
-        I --> J[Firecrawl Search API]
-        J --> K{Website Found?}
-        K -->|Yes| L[Firecrawl Scrape API]
-        K -->|No| M[Fallback Search]
-        M --> L
-        L --> N[Extract Contact Info]
-        N --> O[Email Phone Address]
-    end
-
-    subgraph Phase4[Output]
-        O --> P[Combined JSON Result]
-        P --> Q[n8n Automation]
+    subgraph Phase3[Phase 3 - Output]
+        E --> N[Save to JSON File]
+        M --> N
+        N --> O[results/NSN.json]
+        O --> P[n8n Automation]
     end
 ```
 
+### Flow Summary
+
+1. **NSN Input** → DIBBS scraper checks RFQ status
+2. **If OPEN** → Automatically discovers supplier contacts via Firecrawl
+3. **If NOT OPEN** → Skips contact discovery (use `--contacts` to force)
+4. **Output** → JSON saved to `./results/<NSN>.json`
+
 ## Features
 
+- **Automatic contact discovery** when RFQ is OPEN (no flag needed)
 - Automatic DoD consent banner handling
 - Multi-source data combination with unified JSON output
+- **JSON file output** to `./results/<NSN>.json`
 - Batch processing support
 - OPEN/CLOSED RFQ status detection
 - Manufacturer and CAGE code extraction
@@ -71,17 +78,19 @@ cp .env.example .env
 ```
 
 Key environment variables:
-- `FIRECRAWL_API_KEY` - Required for `--contacts` flag
+- `FIRECRAWL_API_KEY` - Required for automatic contact discovery
 - `DIBBS_BASE_URL` - DIBBS endpoint (default provided)
 - `WBPARTS_BASE_URL` - WBParts endpoint (default provided)
 - `SCRAPE_TIMEOUT` - Timeout in ms (default: 30000)
 
 ## Usage
 
-### DIBBS Only (Default)
+### Default (Auto-Contact Discovery)
 ```bash
+# Automatically discovers contacts if RFQ is OPEN
 npx tsx src/index.ts <NSN>
 npx tsx src/index.ts 4520-01-261-9675
+# Output: ./results/4520-01-261-9675.json
 ```
 
 ### Combined DIBBS + WBParts
@@ -95,22 +104,27 @@ npx tsx src/index.ts 4520-01-261-9675 --wbparts
 npx tsx src/index.ts <NSN> --wbparts-only
 ```
 
-### With Supplier Contact Discovery
+### Contact Discovery Options
 ```bash
-# Primary supplier contact only
+# Skip contact discovery even if OPEN
+npx tsx src/index.ts <NSN> --no-contacts
+
+# Force contact discovery even if NOT OPEN
 npx tsx src/index.ts <NSN> --contacts
 
-# All suppliers' contacts
-npx tsx src/index.ts <NSN> --contacts --all
+# Look up ALL suppliers (not just primary)
+npx tsx src/index.ts <NSN> --all
+```
 
-# Full workflow: DIBBS + WBParts + All Contacts
-npx tsx src/index.ts <NSN> --wbparts --contacts --all
+### Custom Output Directory
+```bash
+npx tsx src/index.ts <NSN> --output ./my-results
 ```
 
 ### Batch Mode
 ```bash
 npx tsx src/index.ts <NSN1>,<NSN2>,<NSN3>
-npx tsx src/index.ts 4520-01-261-9675,4030-01-097-6471 --wbparts --contacts
+npx tsx src/index.ts 4520-01-261-9675,4030-01-097-6471 --wbparts
 ```
 
 ### Help
@@ -124,15 +138,18 @@ npx tsx src/index.ts --help
 |------|-------|-------------|
 | `--wbparts` | `-w` | Include WBParts data |
 | `--wbparts-only` | `-W` | Only scrape from WBParts |
-| `--contacts` | `-c` | Discover supplier contact info via Firecrawl |
-| `--all` | `-a` | With --contacts: look up all suppliers |
+| `--no-contacts` | | Skip contact discovery even if RFQ is OPEN |
+| `--contacts` | `-c` | Force contact discovery even if RFQ is NOT OPEN |
+| `--all` | `-a` | Look up all suppliers (not just primary) |
+| `--output` | `-o` | Output directory (default: `./results`) |
 | `--help` | `-h` | Show help |
 
 ## Output Format
 
-All output is JSON to stdout. Log messages go to stderr.
+Results are saved to JSON files in `./results/<NSN>.json`. Log messages go to stderr.
+JSON is also printed to stdout for piping.
 
-### With Contacts (--contacts)
+### With Contacts (OPEN RFQ or --contacts)
 ```json
 {
   "nsn": "4520-01-261-9675",
@@ -238,8 +255,9 @@ Best for: Development, testing, manual checks
 ### Option 2: n8n Integration
 Use the Execute Command node:
 ```
-cd /path/to/rfq-automation && npx tsx src/index.ts {{$json.nsn}} --contacts
+cd /path/to/rfq-automation && npx tsx src/index.ts {{$json.nsn}}
 ```
+Results are saved to `./results/{{$json.nsn}}.json` - parse the file or use stdout.
 Best for: Scheduled automation, batch processing, CRM integration
 
 ### Option 3: Docker Container
@@ -254,7 +272,7 @@ ENTRYPOINT ["npx", "tsx", "src/index.ts"]
 Run with:
 ```bash
 docker build -t rfq-scraper .
-docker run --env-file .env rfq-scraper 4520-01-261-9675 --contacts
+docker run --env-file .env -v $(pwd)/results:/app/results rfq-scraper 4520-01-261-9675
 ```
 Best for: Consistent environments, CI/CD pipelines
 
@@ -279,7 +297,7 @@ Best for: High-volume, real-time API access
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `FIRECRAWL_API_KEY` | Firecrawl API key | (required for --contacts) |
+| `FIRECRAWL_API_KEY` | Firecrawl API key | (required for auto-contact discovery) |
 | `DIBBS_BASE_URL` | DIBBS endpoint | `https://www.dibbs.bsm.dla.mil/rfq/rfqnsn.aspx` |
 | `WBPARTS_BASE_URL` | WBParts endpoint | `https://www.wbparts.com/rfq` |
 | `SCRAPE_TIMEOUT` | Scraper timeout (ms) | `30000` |
