@@ -11,6 +11,18 @@ Python version of the RFQ Automation Scraper with Streamlit web interface.
 - 📊 **Real-time Progress** - Visual feedback during scraping operations
 - 💾 **JSON Export** - Download results for further processing
 
+## Architecture
+
+For comprehensive architecture diagrams and technical documentation, see:
+
+📐 **[Architecture Documentation](docs/architecture-diagram.md)**
+
+This includes:
+- Complete workflow diagrams showing behind-the-scenes operations
+- Batch processing workflow
+- Data model structure and relationships
+- Technology stack overview
+
 ## Prerequisites
 
 - Python 3.8+
