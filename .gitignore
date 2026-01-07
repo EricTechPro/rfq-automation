@@ -9,6 +9,9 @@ dist/
 .env.local
 .env.*.local
 
+# Streamlit secrets (never commit!)
+.streamlit/secrets.toml
+
 # Logs
 *.log
 npm-debug.log*
@@ -31,6 +34,17 @@ coverage/
 
 # Results output
 results/
+output/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
 
 # Temp files
 *.tmp

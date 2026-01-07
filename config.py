@@ -2,23 +2,43 @@
 Configuration Module
 
 Centralized configuration loader for the RFQ Automation scraper.
-Loads settings from environment variables with sensible defaults.
+Supports both local .env files AND Streamlit Cloud secrets.
+
+Local development: Use .env file
+Streamlit Cloud: Use Secrets dashboard (TOML format)
 """
 
 import os
 from dotenv import load_dotenv
 
-# Load .env file
+# Load .env file for local development
 load_dotenv()
+
+
+def get_secret(key: str, default: str = "") -> str:
+    """
+    Get a secret value, checking Streamlit secrets first (for cloud deployment),
+    then falling back to environment variables (for local development).
+    """
+    # Try Streamlit secrets first (for Streamlit Cloud deployment)
+    try:
+        import streamlit as st
+        if hasattr(st, 'secrets') and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass  # Not running in Streamlit or secrets not configured
+
+    # Fall back to environment variables (local development)
+    return os.getenv(key, default)
 
 
 class Config:
     """Application configuration"""
 
     # Firecrawl API
-    FIRECRAWL_API_KEY: str = os.getenv("FIRECRAWL_API_KEY", "")
-    FIRECRAWL_API_URL: str = os.getenv("FIRECRAWL_API_URL", "https://api.firecrawl.dev/v2")
-    FIRECRAWL_TIMEOUT: int = int(os.getenv("FIRECRAWL_TIMEOUT", "60000"))
+    FIRECRAWL_API_KEY: str = get_secret("FIRECRAWL_API_KEY", "")
+    FIRECRAWL_API_URL: str = get_secret("FIRECRAWL_API_URL", "https://api.firecrawl.dev/v2")
+    FIRECRAWL_TIMEOUT: int = int(get_secret("FIRECRAWL_TIMEOUT", "60000"))
 
     # Base URLs
     DIBBS_BASE_URL: str = os.getenv("DIBBS_BASE_URL", "https://www.dibbs.bsm.dla.mil/rfq/rfqnsn.aspx")
