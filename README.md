@@ -1,15 +1,80 @@
-# RFQ Automation Scraper (Python/Streamlit)
+# RFQ Automation Scraper
 
-Python version of the RFQ Automation Scraper with Streamlit web interface.
+Automated NSN/RFQ scraper for DIBBS and WBParts with supplier contact discovery.
+
+## Quick Start (5 minutes)
+
+### Step 1: Check Prerequisites
+
+Open your terminal and check if you have Python installed:
+
+```bash
+python3 --version
+```
+
+**If you see "command not found":**
+- **Mac:** Install from [python.org](https://www.python.org/downloads/) or run `brew install python3`
+- **Windows:** Download from [python.org](https://www.python.org/downloads/) and check "Add to PATH" during install
+- **Linux:** Run `sudo apt install python3 python3-pip`
+
+### Step 2: Download the Code
+
+```bash
+# Clone the repository
+git clone https://github.com/EricTechPro/rfq-automation.git
+
+# Navigate into the folder
+cd rfq-automation
+```
+
+### Step 3: Install Dependencies
+
+```bash
+# Install Python packages
+pip3 install -r requirements.txt
+
+# Install browser for web scraping (required)
+python3 -m playwright install chromium
+```
+
+### Step 4: Configure API Key
+
+```bash
+# Copy the example config
+cp .env.example .env
+```
+
+Open `.env` in any text editor and add your Firecrawl API key:
+```
+FIRECRAWL_API_KEY=fc-your-api-key-here
+```
+
+### Step 5: Run It!
+
+```bash
+# Process all NSNs from nsns.txt
+python3 cli.py --file nsns.txt --force
+```
+
+**That's it!** Results will be saved to:
+- `output/batch_results.csv` - Spreadsheet format
+- `output/batch_results.json` - Full data with all details
+
+---
 
 ## Features
 
 - 🔍 **DIBBS Integration** - Scrapes NSN data, suppliers, and RFQ solicitations
 - 🛠️ **WBParts Integration** - Additional manufacturer and technical specification data
 - 🔥 **Firecrawl Contact Discovery** - AI-powered supplier contact information extraction
-- 🎨 **Interactive Streamlit UI** - User-friendly web interface
-- 📊 **Real-time Progress** - Visual feedback during scraping operations
-- 💾 **JSON Export** - Download results for further processing
+- 📊 **Real-time Progress** - Visual progress bar with ETA
+- 💾 **CSV & JSON Export** - Download results in multiple formats
+- 🔄 **Resume Capability** - Automatically continues if interrupted
+- ✅ **Accurate Open/Closed Detection** - Reads actual RFQ status from DIBBS
+
+## Important Note: Cloud Deployment
+
+> **Streamlit Cloud Limitation:** The hosted demo at `rfq-automation-erictech.streamlit.app` cannot perform actual scraping because Streamlit Cloud doesn't support browser automation (Playwright). **For full functionality, run the tool locally** using the Quick Start instructions above.
 
 ## Architecture
 
@@ -17,43 +82,11 @@ For comprehensive architecture diagrams and technical documentation, see:
 
 📐 **[Architecture Documentation](docs/architecture-diagram.md)**
 
-This includes:
-- Complete workflow diagrams showing behind-the-scenes operations
-- Batch processing workflow
-- Data model structure and relationships
-- Technology stack overview
-
 ## Prerequisites
 
-- Python 3.8+
+- Python 3.8+ (check with `python3 --version`)
+- Git (check with `git --version`)
 - Firecrawl API key (get one at [firecrawl.dev](https://firecrawl.dev))
-
-## Installation
-
-1. **Clone or navigate to the project:**
-   ```bash
-   cd rfq-automation-python
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip3 install -r requirements.txt
-   ```
-
-3. **Install Playwright browsers:**
-   ```bash
-   python3 -m playwright install chromium
-   ```
-
-4. **Set up environment variables:**
-   ```bash
-   cp .env.example .env
-   ```
-
-   Edit `.env` and add your Firecrawl API key:
-   ```
-   FIRECRAWL_API_KEY=your_api_key_here
-   ```
 
 ## Usage
 
