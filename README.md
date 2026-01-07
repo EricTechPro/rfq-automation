@@ -57,53 +57,108 @@ This includes:
 
 ## Usage
 
-### Streamlit Web Interface
+### Option 1: Command Line Interface (CLI) - Recommended for Batch Processing
 
-Launch the Streamlit app:
+Process multiple NSNs from a file with **resume capability** and **incremental saves**:
+
+```bash
+# Process NSNs from a file (auto-resumes if interrupted)
+python3 cli.py --file nsns.txt
+
+# Start fresh (ignore previous progress)
+python3 cli.py --file nsns.txt --force
+
+# Custom output file name
+python3 cli.py --file nsns.txt --output-name my_results
+
+# Process specific NSNs directly
+python3 cli.py --nsns "5306003733291,6685011396216,5315011590157"
+```
+
+**Output:** Results are saved to `output/batch_results.csv` and `output/batch_results.json`
+
+**Features:**
+- **Resume capability** - Automatically skips already-processed NSNs if interrupted
+- **Incremental saves** - Results saved after each NSN (no data loss on interruption)
+- **Progress tracking** - Visual progress bar with ETA
+- **Rate limiting** - Automatic delays to avoid overwhelming servers
+
+### Option 2: Streamlit Web Interface
+
+Launch the interactive web app:
 
 ```bash
 streamlit run app.py
 ```
 
-The app will open in your browser at `http://localhost:8501`. Features:
-
-- Enter an NSN (format: XXXX-XX-XXX-XXXX or XXXXXXXXXXXX)
-- Click "Search NSN" to start scraping
-- View real-time progress through 3 stages:
-  1. DIBBS scraping
-  2. WBParts scraping
-  3. Contact discovery
-- Download results as JSON
-
-### Command-Line Test
-
-Run the test script to verify installation:
+Or use the unified entry point:
 
 ```bash
-python3 test_scraper.py
+python3 main.py streamlit
 ```
+
+The app opens at `http://localhost:8501` with:
+- Single NSN or batch processing modes
+- Real-time progress visualization
+- CSV and JSON export options
+
+### Option 3: REST API
+
+Start the FastAPI server for programmatic access:
+
+```bash
+python3 main.py api
+```
+
+Or directly:
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+**Endpoints:**
+- `GET /health` - Health check
+- `POST /api/batch` - Process batch of NSNs
+
+**Example:**
+```bash
+curl -X POST http://localhost:8000/api/batch \
+  -H "Content-Type: application/json" \
+  -d '{"nsns": ["5306003733291", "6685011396216"]}'
+```
+
+API docs available at `http://localhost:8000/docs`
 
 ## Project Structure
 
 ```
-rfq-automation-python/
+rfq-automation/
 ├── app.py                    # Streamlit web interface
-├── config.py                 # Configuration loader
+├── api.py                    # FastAPI REST API
+├── cli.py                    # Command line interface
+├── core.py                   # Shared business logic
+├── main.py                   # Unified entry point
+├── config.py                 # Configuration loader (supports .env + Streamlit secrets)
 ├── models.py                 # Pydantic data models
-├── test_scraper.py          # Test script
-├── requirements.txt         # Python dependencies
-├── .env.example             # Environment variables template
+├── requirements.txt          # Python dependencies
+├── .env.example              # Environment variables template
+├── nsns.txt                  # Sample NSN list for batch processing
+├── .streamlit/
+│   ├── config.toml           # Streamlit configuration
+│   └── secrets.toml.example  # Streamlit Cloud secrets template
 ├── scrapers/
 │   ├── __init__.py
-│   ├── dibbs.py            # DIBBS scraper
-│   └── wbparts.py          # WBParts scraper
+│   ├── dibbs.py              # DIBBS scraper (RFQ status detection)
+│   └── wbparts.py            # WBParts scraper
 ├── services/
 │   ├── __init__.py
-│   └── firecrawl.py        # Firecrawl API client
+│   └── firecrawl.py          # Firecrawl API client
 ├── utils/
 │   ├── __init__.py
-│   └── helpers.py          # Utility functions
-└── results/                 # JSON output directory
+│   └── helpers.py            # Utility functions
+├── output/                   # CSV/JSON output directory
+└── docs/
+    └── architecture-diagram.md  # Technical documentation
 ```
 
 ## Data Models
