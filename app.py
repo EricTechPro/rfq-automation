@@ -7,9 +7,7 @@ All features enabled by default: DIBBS + WBParts + Contact Discovery
 
 import asyncio
 import json
-import time
 from datetime import datetime
-from typing import Optional
 
 import streamlit as st
 
@@ -17,20 +15,12 @@ from config import config
 from models import (
     EnhancedRFQResult,
     SupplierWithContact,
-    RawData,
-    WorkflowStatus,
-    ApprovedSource,
-    WBPartsManufacturer,
 )
-from scrapers.dibbs import scrape_dibbs
-from scrapers.wbparts import scrape_wbparts
-from services.firecrawl import find_supplier_contact
+from core import scrape_nsn, scrape_batch
 from utils.helpers import (
     validate_nsn,
     format_nsn_with_dashes,
-    get_unique_suppliers,
     save_result,
-    get_timestamp,
 )
 
 
@@ -67,214 +57,19 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-def get_unique_suppliers_list(dibbs_sources, wbparts_mfrs):
-    """Get unique suppliers from both sources"""
-    seen = set()
-    suppliers = []
-
-    for source in dibbs_sources:
-        key = f"{source.company_name}|{source.cage_code}"
-        if key not in seen and source.company_name:
-            seen.add(key)
-            suppliers.append({
-                "companyName": source.company_name,
-                "cageCode": source.cage_code,
-                "partNumber": source.part_number
-            })
-
-    for mfr in wbparts_mfrs:
-        key = f"{mfr.company_name}|{mfr.cage_code}"
-        if key not in seen and mfr.company_name:
-            seen.add(key)
-            suppliers.append({
-                "companyName": mfr.company_name,
-                "cageCode": mfr.cage_code,
-                "partNumber": mfr.part_number
-            })
-
-    return suppliers
+# Core scraping functions imported from core.py:
+# - scrape_nsn(nsn, progress_callback) -> EnhancedRFQResult
+# - scrape_batch(nsns, progress_callback, batch_status_callback) -> BatchProcessingResult
 
 
 async def run_scrape(nsn: str, progress_callback) -> EnhancedRFQResult:
-    """
-    Run the full scraping workflow.
-
-    Steps:
-    1. Scrape DIBBS + WBParts in parallel
-    2. Discover contacts for all suppliers
-    3. Return enhanced result
-    """
-    # Step 1: Scrape DIBBS + WBParts
-    progress_callback(1, "Scraping DIBBS + WBParts...")
-
-    dibbs_result, wbparts_result = await asyncio.gather(
-        scrape_dibbs(nsn),
-        scrape_wbparts(nsn)
-    )
-
-    # Get suppliers
-    dibbs_sources = dibbs_result.data.approved_sources if dibbs_result.data else []
-    wbparts_mfrs = wbparts_result.data.manufacturers if wbparts_result.data else []
-    all_suppliers = get_unique_suppliers_list(dibbs_sources, wbparts_mfrs)
-
-    has_open_rfq = dibbs_result.data.has_open_rfqs if dibbs_result.data else False
-
-    # Step 2: Contact discovery
-    progress_callback(2, f"Discovering contacts for {len(all_suppliers)} supplier(s)...")
-
-    suppliers_with_contacts = []
-    firecrawl_status = "skipped"
-
-    if all_suppliers and config.is_firecrawl_configured():
-        success_count = 0
-
-        for supplier in all_suppliers:
-            contact = find_supplier_contact(
-                supplier["companyName"],
-                supplier["cageCode"]
-            )
-
-            suppliers_with_contacts.append(SupplierWithContact(
-                companyName=supplier["companyName"],
-                cageCode=supplier["cageCode"],
-                partNumber=supplier["partNumber"],
-                contact=contact
-            ))
-
-            if contact and contact.confidence != "low":
-                success_count += 1
-
-            # Rate limiting
-            time.sleep(config.BATCH_DELAY / 1000)
-
-        if success_count == len(all_suppliers):
-            firecrawl_status = "success"
-        elif success_count > 0:
-            firecrawl_status = "partial"
-        else:
-            firecrawl_status = "error"
-    else:
-        # No Firecrawl - just add suppliers without contacts
-        for supplier in all_suppliers:
-            suppliers_with_contacts.append(SupplierWithContact(
-                companyName=supplier["companyName"],
-                cageCode=supplier["cageCode"],
-                partNumber=supplier["partNumber"],
-                contact=None
-            ))
-
-    # Step 3: Build result
-    progress_callback(3, "Building result...")
-
-    result = EnhancedRFQResult(
-        nsn=dibbs_result.data.nsn if dibbs_result.data else format_nsn_with_dashes(nsn),
-        itemName=wbparts_result.data.item_name if wbparts_result.data else (
-            dibbs_result.data.nomenclature if dibbs_result.data else ""
-        ),
-        hasOpenRFQ=has_open_rfq,
-        suppliers=suppliers_with_contacts,
-        rawData=RawData(
-            dibbs=dibbs_result.data,
-            wbparts=wbparts_result.data
-        ),
-        workflow=WorkflowStatus(
-            dibbsStatus="success" if dibbs_result.success else "error",
-            wbpartsStatus="success" if wbparts_result.success else "error",
-            firecrawlStatus=firecrawl_status
-        ),
-        scrapedAt=get_timestamp()
-    )
-
-    return result
+    """Wrapper that calls scrape_nsn from core.py."""
+    return await scrape_nsn(nsn, progress_callback)
 
 
-async def run_batch_scrape(
-    nsns: list,
-    progress_callback,
-    batch_status_callback
-):
-    """
-    Process multiple NSNs sequentially with rate limiting.
-
-    Args:
-        nsns: List of NSN strings to process
-        progress_callback: Progress update callback (current, total, message)
-        batch_status_callback: Batch status callback (nsn_index, result)
-
-    Returns:
-        BatchProcessingResult with all individual results
-    """
-    import time
-    from models import BatchProcessingResult, BatchNSNResult
-
-    batch_result = BatchProcessingResult(
-        totalNsns=len(nsns),
-        results=[],
-        startedAt=get_timestamp()
-    )
-
-    for idx, nsn in enumerate(nsns, start=1):
-        # Validate NSN
-        if not validate_nsn(nsn):
-            batch_result.results.append(BatchNSNResult(
-                nsn=nsn,
-                status="error",
-                errorMessage=f"Invalid NSN format: {nsn}",
-                processedAt=get_timestamp()
-            ))
-            batch_result.processed += 1
-            batch_result.failed += 1
-            batch_status_callback(idx, batch_result.results[-1])
-            continue
-
-        # Format NSN
-        formatted_nsn = format_nsn_with_dashes(nsn)
-
-        # Update batch progress
-        progress_callback(idx, len(nsns), f"Processing NSN {idx}/{len(nsns)}: {formatted_nsn}")
-
-        # Create batch result entry
-        batch_nsn_result = BatchNSNResult(
-            nsn=formatted_nsn,
-            status="processing"
-        )
-        batch_result.results.append(batch_nsn_result)
-        batch_status_callback(idx, batch_nsn_result)
-
-        try:
-            # Process individual NSN
-            def nsn_progress(step, message):
-                full_message = f"NSN {idx}/{len(nsns)} - Step {step}/3: {message}"
-                progress_callback(idx, len(nsns), full_message)
-
-            result = await run_scrape(formatted_nsn, nsn_progress)
-
-            # Update success
-            batch_nsn_result.status = "success"
-            batch_nsn_result.result = result
-            batch_nsn_result.processed_at = get_timestamp()
-            batch_result.successful += 1
-
-            # Save individual result
-            result_dict = result.model_dump(by_alias=True, exclude_none=True)
-            save_result(formatted_nsn, result_dict)
-
-        except Exception as e:
-            # Update failure
-            batch_nsn_result.status = "error"
-            batch_nsn_result.error_message = str(e)
-            batch_nsn_result.processed_at = get_timestamp()
-            batch_result.failed += 1
-
-        batch_result.processed += 1
-        batch_status_callback(idx, batch_nsn_result)
-
-        # Rate limiting between NSNs (except last one)
-        if idx < len(nsns):
-            time.sleep(config.BATCH_DELAY / 1000)
-
-    batch_result.completed_at = get_timestamp()
-    return batch_result
+async def run_batch_scrape(nsns: list, progress_callback, batch_status_callback):
+    """Wrapper that calls scrape_batch from core.py."""
+    return await scrape_batch(nsns, progress_callback, batch_status_callback)
 
 
 def render_supplier_card(supplier: SupplierWithContact):
