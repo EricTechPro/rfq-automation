@@ -22,11 +22,14 @@ def format_nsn(nsn: str) -> str:
     return nsn.replace("-", "")
 
 
-async def handle_consent_banner(page: Page) -> bool:
+async def handle_consent_banner(page: Page, return_url: str) -> bool:
     """
     Handle the DoD Notice and Consent Banner.
 
-    Returns True if banner was clicked, False otherwise.
+    After clicking OK, the page redirects away from the search URL.
+    We need to navigate back to our original search URL.
+
+    Returns True if banner was handled, False otherwise.
     """
     try:
         # Look for the OK button on consent banner
@@ -34,6 +37,11 @@ async def handle_consent_banner(page: Page) -> bool:
 
         if await ok_button.count() > 0:
             await ok_button.click()
+            await page.wait_for_load_state("networkidle")
+
+            # After consent, the page redirects to a generic URL
+            # Navigate back to our specific search URL
+            await page.goto(return_url, timeout=30000)
             await page.wait_for_load_state("networkidle")
             return True
 
@@ -125,20 +133,23 @@ async def extract_approved_sources(page: Page) -> List[ApprovedSource]:
 
 async def extract_solicitations(page: Page) -> List[Solicitation]:
     """
-    Extract solicitation data from tables.
+    Extract solicitation data from the RFQ search results table.
 
-    Table structure (6+ columns):
-    - Solicitation Number (may have link)
+    Table structure on RFQRecs.aspx (9 columns):
+    - # (row number)
+    - NSN/Part Number
+    - Nomenclature
     - Technical Documents
-    - PR Number
-    - Quantity
-    - Issue Date
-    - Return By Date
+    - Solicitation (with link)
+    - RFQ/Quote Status (Open, Removed, Cancelled) <-- KEY COLUMN
+    - Purchase Request (PR # and QTY)
+    - Issued
+    - Return By
     """
     solicitations = []
 
     try:
-        # Find tables with solicitation data
+        # Find the main data table - it contains NSN/Part Number header
         tables = page.locator("table")
         table_count = await tables.count()
 
@@ -146,53 +157,85 @@ async def extract_solicitations(page: Page) -> List[Solicitation]:
             table = tables.nth(t)
             text = await table.inner_text()
 
-            # Check if this is a solicitation table
-            if "Solicitation #" in text or "PR #" in text:
+            # Check if this is the RFQ results table (has NSN/Part Number column)
+            if "NSN/Part Number" in text or "RFQ/Quote" in text:
                 rows = table.locator("tr")
                 row_count = await rows.count()
 
-                # Skip header row
+                # Skip header row (start at 1)
                 for i in range(1, row_count):
                     row = rows.nth(i)
                     cells = row.locator("td")
                     cell_count = await cells.count()
 
-                    if cell_count >= 6:
-                        # Get solicitation number and URL
-                        sol_cell = cells.nth(0)
+                    # Need at least 8 columns for the full table
+                    if cell_count >= 8:
+                        # Column 3: Technical Documents
+                        tech_docs = (await cells.nth(3).inner_text()).strip()
+
+                        # Column 4: Solicitation (with link)
+                        sol_cell = cells.nth(4)
                         sol_number = (await sol_cell.inner_text()).strip()
+                        # Clean up - remove "Package View" and other extra text
+                        sol_number = sol_number.split('\n')[0].strip()
 
                         sol_url = None
-                        link = sol_cell.locator("a")
+                        link = sol_cell.locator("a").first
                         if await link.count() > 0:
                             sol_url = await link.get_attribute("href")
 
-                        tech_docs = (await cells.nth(1).inner_text()).strip()
-                        pr_number = (await cells.nth(2).inner_text()).strip()
+                        # Column 5: RFQ/Quote Status - THIS IS THE KEY COLUMN
+                        status_cell = cells.nth(5)
+                        status_text = (await status_cell.inner_text()).strip()
+                        # Clean up status - extract just the status word
+                        # Status can be: "Open", "Removed", "Cancelled"
+                        status = status_text.split('\n')[0].strip()
+                        # Remove any extra characters like vote icons
+                        if 'Open' in status:
+                            status = 'Open'
+                        elif 'Removed' in status:
+                            status = 'Removed'
+                        elif 'Cancel' in status:
+                            status = 'Cancelled'
 
-                        # Parse quantity
-                        qty_text = (await cells.nth(3).inner_text()).strip()
-                        try:
-                            quantity = int(qty_text.replace(",", ""))
-                        except ValueError:
-                            quantity = 0
+                        # Column 6: Purchase Request (contains PR # and QTY on separate lines)
+                        pr_cell = cells.nth(6)
+                        pr_text = (await pr_cell.inner_text()).strip()
+                        pr_lines = pr_text.split('\n')
+                        pr_number = pr_lines[0].strip() if pr_lines else ""
 
-                        issue_date = (await cells.nth(4).inner_text()).strip()
-                        return_by_date = (await cells.nth(5).inner_text()).strip()
+                        # Parse quantity from "QTY: XXX" line
+                        quantity = 0
+                        for line in pr_lines:
+                            if 'QTY' in line.upper():
+                                qty_match = re.search(r'(\d[\d,]*)', line)
+                                if qty_match:
+                                    try:
+                                        quantity = int(qty_match.group(1).replace(",", ""))
+                                    except ValueError:
+                                        quantity = 0
+
+                        # Column 7: Issued date
+                        issue_date = (await cells.nth(7).inner_text()).strip()
+
+                        # Column 8: Return By date
+                        return_by_date = (await cells.nth(8).inner_text()).strip()
 
                         if sol_number:
                             solicitations.append(Solicitation(
                                 solicitationNumber=sol_number,
                                 solicitationUrl=sol_url,
                                 technicalDocuments=tech_docs or "None",
+                                status=status,
                                 prNumber=pr_number,
                                 quantity=quantity,
                                 issueDate=issue_date,
                                 returnByDate=return_by_date
                             ))
 
-    except Exception:
-        pass
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Error extracting solicitations: {e}")
 
     return solicitations
 
@@ -201,19 +244,13 @@ def has_open_rfqs(solicitations: List[Solicitation]) -> bool:
     """
     Check if any solicitation has an open RFQ.
 
-    RFQ is open if return_by_date >= today.
-    Date format: MM-DD-YYYY
+    RFQ is open if the status field is "Open".
+    Status values from DIBBS: Open, Removed, Cancelled
     """
-    today = datetime.now().date()
-
     for sol in solicitations:
-        try:
-            # Parse MM-DD-YYYY format
-            return_date = datetime.strptime(sol.return_by_date, "%m-%d-%Y").date()
-            if return_date >= today:
-                return True
-        except ValueError:
-            continue
+        # Check the actual status from the RFQ/Quote Status column
+        if sol.status.lower() == "open":
+            return True
 
     return False
 
@@ -226,7 +263,8 @@ async def scrape_dibbs(nsn: str) -> ScrapeResult:
     """
     browser: Optional[Browser] = None
     clean_nsn = format_nsn(nsn)
-    source_url = f"{config.DIBBS_BASE_URL}?value={clean_nsn}"
+    # Use RFQRecs.aspx for search results which includes the RFQ/Quote Status column
+    source_url = f"https://www.dibbs.bsm.dla.mil/rfq/RFQRecs.aspx?scope=all&sort=nsn&sort2=nsn&TypeSrch=cq&category=nsn&value={clean_nsn}"
 
     try:
         async with async_playwright() as p:
@@ -237,8 +275,8 @@ async def scrape_dibbs(nsn: str) -> ScrapeResult:
             # Navigate to DIBBS
             await page.goto(source_url, timeout=config.SCRAPE_TIMEOUT)
 
-            # Handle consent banner
-            await handle_consent_banner(page)
+            # Handle consent banner (pass source_url so we can return to it after consent)
+            await handle_consent_banner(page, source_url)
 
             # Wait for page to stabilize
             await page.wait_for_load_state("networkidle")

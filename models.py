@@ -26,6 +26,7 @@ class Solicitation(BaseModel):
     solicitation_number: str = Field(alias="solicitationNumber")
     solicitation_url: Optional[str] = Field(None, alias="solicitationUrl")
     technical_documents: str = Field("None", alias="technicalDocuments")
+    status: str = Field("", alias="status")  # RFQ/Quote Status: Open, Removed, Cancelled
     pr_number: str = Field(alias="prNumber")
     quantity: int
     issue_date: str = Field(alias="issueDate")
