@@ -10,7 +10,9 @@ COPY . .
 # Install Playwright browsers
 RUN playwright install chromium
 
-EXPOSE 8501
+# Railway assigns PORT dynamically, default to 8501 for local dev
+ENV PORT=8501
+EXPOSE $PORT
 
-# Run Streamlit
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+# Run Streamlit with dynamic port
+CMD streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
