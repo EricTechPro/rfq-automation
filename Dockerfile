@@ -10,9 +10,11 @@ COPY . .
 # Install Playwright browsers
 RUN playwright install chromium
 
-# Railway assigns PORT dynamically, default to 8501 for local dev
-ENV PORT=8501
-EXPOSE $PORT
+# Copy and make start script executable
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
-# Run Streamlit with dynamic port
-CMD streamlit run app.py --server.port=$PORT --server.address=0.0.0.0
+EXPOSE 8501
+
+# Run via bash script that properly expands $PORT
+CMD ["/bin/bash", "/app/start.sh"]
