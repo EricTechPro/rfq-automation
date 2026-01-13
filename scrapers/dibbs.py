@@ -263,8 +263,8 @@ async def scrape_dibbs(nsn: str) -> ScrapeResult:
     """
     browser: Optional[Browser] = None
     clean_nsn = format_nsn(nsn)
-    # Use RFQRecs.aspx for search results which includes the RFQ/Quote Status column
-    source_url = f"https://www.dibbs.bsm.dla.mil/rfq/RFQRecs.aspx?scope=all&sort=nsn&sort2=nsn&TypeSrch=cq&category=nsn&value={clean_nsn}"
+    # Use rfqnsn.aspx for NSN detail page which has "Approved Source Data" table
+    source_url = f"https://www.dibbs.bsm.dla.mil/rfq/rfqnsn.aspx?snsn={clean_nsn}"
 
     try:
         async with async_playwright() as p:

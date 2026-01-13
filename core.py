@@ -105,33 +105,57 @@ async def scrape_nsn(
 
     # Step 1: Scrape DIBBS + WBParts
     callback(1, "Scraping DIBBS + WBParts...")
+    print(f"[DEBUG] scrape_nsn: Starting for NSN {nsn}")
 
     dibbs_result, wbparts_result = await asyncio.gather(
         scrape_dibbs(nsn),
         scrape_wbparts(nsn)
     )
 
+    # Log DIBBS result
+    print(f"[DEBUG] DIBBS result: success={dibbs_result.success}, error={dibbs_result.error}")
+    if dibbs_result.data:
+        print(f"[DEBUG] DIBBS approved_sources count: {len(dibbs_result.data.approved_sources)}")
+    else:
+        print(f"[DEBUG] DIBBS data is None")
+
+    # Log WBParts result
+    print(f"[DEBUG] WBParts result: success={wbparts_result.success}, error={wbparts_result.error}")
+    if wbparts_result.data:
+        print(f"[DEBUG] WBParts manufacturers count: {len(wbparts_result.data.manufacturers)}")
+    else:
+        print(f"[DEBUG] WBParts data is None")
+
     # Get suppliers
     dibbs_sources = dibbs_result.data.approved_sources if dibbs_result.data else []
     wbparts_mfrs = wbparts_result.data.manufacturers if wbparts_result.data else []
     all_suppliers = get_unique_suppliers_list(dibbs_sources, wbparts_mfrs)
+    print(f"[DEBUG] Total unique suppliers: {len(all_suppliers)}")
 
     has_open_rfq = dibbs_result.data.has_open_rfqs if dibbs_result.data else False
 
     # Step 2: Contact discovery
     callback(2, f"Discovering contacts for {len(all_suppliers)} supplier(s)...")
+    print(f"[DEBUG] Firecrawl configured: {config.is_firecrawl_configured()}")
 
     suppliers_with_contacts = []
     firecrawl_status = "skipped"
 
     if all_suppliers and config.is_firecrawl_configured():
         success_count = 0
+        print(f"[DEBUG] Starting Firecrawl contact discovery for {len(all_suppliers)} suppliers")
 
-        for supplier in all_suppliers:
+        for idx, supplier in enumerate(all_suppliers):
+            print(f"[DEBUG] Finding contact for supplier {idx+1}/{len(all_suppliers)}: {supplier['companyName']}")
             contact = find_supplier_contact(
                 supplier["companyName"],
                 supplier["cageCode"]
             )
+
+            if contact:
+                print(f"[DEBUG] Contact found: confidence={contact.confidence}, email={contact.email}, phone={contact.phone}")
+            else:
+                print(f"[DEBUG] No contact found for {supplier['companyName']}")
 
             suppliers_with_contacts.append(SupplierWithContact(
                 companyName=supplier["companyName"],
@@ -146,6 +170,7 @@ async def scrape_nsn(
             # Rate limiting
             time.sleep(config.BATCH_DELAY / 1000)
 
+        print(f"[DEBUG] Firecrawl completed: {success_count}/{len(all_suppliers)} high/medium confidence")
         if success_count == len(all_suppliers):
             firecrawl_status = "success"
         elif success_count > 0:
@@ -153,6 +178,10 @@ async def scrape_nsn(
         else:
             firecrawl_status = "error"
     else:
+        if not all_suppliers:
+            print(f"[DEBUG] Skipping Firecrawl: no suppliers found")
+        elif not config.is_firecrawl_configured():
+            print(f"[DEBUG] Skipping Firecrawl: API not configured")
         # No Firecrawl - just add suppliers without contacts
         for supplier in all_suppliers:
             suppliers_with_contacts.append(SupplierWithContact(

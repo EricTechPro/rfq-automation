@@ -1,0 +1,296 @@
+{
+  "name": "RFQ Daily Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 24
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RFQ_API_BASE_URL }}/api/scrape-nsns-by-date",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.RFQ_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $now.format('MM-DD-YYYY') }}"
+            },
+            {
+              "name": "maxPages",
+              "value": "0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "scrape-nsns-by-date",
+      "name": "Scrape NSNs by Date",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "nsns",
+        "options": {}
+      },
+      "id": "split-nsns",
+      "name": "Split NSNs",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RFQ_API_BASE_URL }}/api/scrape-nsn-suppliers",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.RFQ_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ nsn: $json.nsn }) }}",
+        "options": {
+          "timeout": 120000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 5000
+            }
+          }
+        }
+      },
+      "id": "scrape-suppliers",
+      "name": "Scrape Suppliers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "filter-has-suppliers",
+              "leftValue": "={{ $json.suppliers.length }}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-has-suppliers",
+      "name": "Has Suppliers?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten supplier data into rows for Google Sheets\n// Each supplier becomes one row\nconst items = $input.all();\nconst rows = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const nsn = data.nsn;\n  const nomenclature = data.nomenclature || '';\n  \n  // Get original NSN data for quantity\n  const originalNsn = $('Split NSNs').item.json;\n  const quantity = originalNsn?.quantity || 0;\n  \n  for (const supplier of data.suppliers || []) {\n    // Generate email draft\n    const emailDraft = `Hello,\\n\\nCan you please provide a quote on the following:\\n\\n- PN: ${supplier.partNumber || ''}\\n- QTY: ${quantity}\\n- Description: ${nomenclature}\\n- Manufacturer: ${supplier.companyName || ''}\\n\\nThank you, and I look forward to your response.`;\n    \n    rows.push({\n      json: {\n        NSN: nsn,\n        'Part Number': supplier.partNumber || '',\n        QTY: quantity,\n        Description: nomenclature,\n        'Supplier Name': supplier.companyName || '',\n        'Cage Code': supplier.cageCode || '',\n        Email: supplier.email || '',\n        Phone: supplier.phone || '',\n        Address: supplier.address || '',\n        Website: supplier.website || '',\n        Confidence: supplier.confidence || '',\n        Status: 'New',\n        'Date Added': $now.format('YYYY-MM-DD'),\n        'Email Draft': emailDraft\n      }\n    });\n  }\n}\n\nreturn rows;"
+      },
+      "id": "flatten-to-rows",
+      "name": "Flatten to Rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "google-sheets",
+      "name": "Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [1320, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "completed"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'Exported ' + $input.all().length + ' rows to Google Sheets' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-success",
+      "name": "Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1540, 0]
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Scrape NSNs by Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape NSNs by Date": {
+      "main": [
+        [
+          {
+            "node": "Split NSNs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split NSNs": {
+      "main": [
+        [
+          {
+            "node": "Scrape Suppliers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Suppliers": {
+      "main": [
+        [
+          {
+            "node": "Has Suppliers?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Suppliers?": {
+      "main": [
+        [
+          {
+            "node": "Flatten to Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Flatten to Rows": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "variables": [
+    {
+      "key": "RFQ_API_BASE_URL",
+      "value": "https://your-railway-app.up.railway.app"
+    },
+    {
+      "key": "RFQ_API_KEY",
+      "value": "your-api-key"
+    }
+  ]
+}
