@@ -36,17 +36,23 @@ async def handle_consent_banner(page: Page, return_url: str) -> bool:
         ok_button = page.locator('input[type="submit"][value="OK"]')
 
         if await ok_button.count() > 0:
+            print(f"[DEBUG] DIBBS: Consent banner found, clicking OK")
             await ok_button.click()
             await page.wait_for_load_state("networkidle")
+            print(f"[DEBUG] DIBBS: Consent accepted, current URL: {page.url}")
 
             # After consent, the page redirects to a generic URL
             # Navigate back to our specific search URL
+            print(f"[DEBUG] DIBBS: Navigating back to {return_url}")
             await page.goto(return_url, timeout=30000)
             await page.wait_for_load_state("networkidle")
+            print(f"[DEBUG] DIBBS: Now at URL: {page.url}")
             return True
 
+        print(f"[DEBUG] DIBBS: No consent banner found")
         return False
-    except Exception:
+    except Exception as e:
+        print(f"[DEBUG] DIBBS: Consent banner error: {e}")
         return False
 
 
@@ -272,6 +278,7 @@ async def scrape_dibbs(nsn: str) -> ScrapeResult:
             context = await browser.new_context(user_agent=config.USER_AGENT)
             page = await context.new_page()
 
+            print(f"[DEBUG] DIBBS: Navigating to {source_url}")
             # Navigate to DIBBS
             await page.goto(source_url, timeout=config.SCRAPE_TIMEOUT)
 
@@ -284,10 +291,13 @@ async def scrape_dibbs(nsn: str) -> ScrapeResult:
             # Retry logic for data extraction
             rfq_data = None
             for attempt in range(config.MAX_RETRIES):
+                print(f"[DEBUG] DIBBS: Extraction attempt {attempt + 1}/{config.MAX_RETRIES}")
                 # Extract data
                 nsn_found, nomenclature, amsc = await extract_header_info(page)
                 approved_sources = await extract_approved_sources(page)
                 solicitations = await extract_solicitations(page)
+
+                print(f"[DEBUG] DIBBS: Found NSN={nsn_found}, sources={len(approved_sources)}, solicitations={len(solicitations)}")
 
                 # Check if we got data
                 if nsn_found or approved_sources or solicitations:
