@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Non-Disclosure and Intellectual Property Agreement</title>
+<style>
+  @page {
+    size: Letter;
+    margin: 2.5cm 2.5cm 3cm 2.5cm;
+    @bottom-center {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 9pt;
+      color: #666;
+    }
+    @bottom-right {
+      content: "Confidential";
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 9pt;
+      color: #999;
+      font-style: italic;
+    }
+  }
+
+  @page :first {
+    @bottom-center {
+      content: "";
+    }
+    @bottom-right {
+      content: "";
+    }
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: "Georgia", "Times New Roman", Times, serif;
+    font-size: 11pt;
+    line-height: 1.6;
+    color: #1a1a1a;
+  }
+
+  .document-header {
+    text-align: center;
+    margin-bottom: 2em;
+    padding-bottom: 1.5em;
+    border-bottom: 2px solid #333;
+  }
+
+  .document-header h1 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 18pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 0.3em;
+    color: #111;
+  }
+
+  .document-header .subtitle {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 10pt;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .disclaimer {
+    background-color: #f8f8f8;
+    border: 1px solid #ddd;
+    border-left: 4px solid #c0392b;
+    padding: 0.8em 1em;
+    margin-bottom: 2em;
+    font-size: 9pt;
+    color: #555;
+    font-style: italic;
+    line-height: 1.4;
+  }
+
+  .effective-date {
+    text-align: center;
+    font-size: 11pt;
+    margin-bottom: 2em;
+    color: #333;
+  }
+
+  .parties {
+    margin-bottom: 2em;
+  }
+
+  .parties p {
+    margin-bottom: 0.5em;
+  }
+
+  .party-label {
+    font-weight: bold;
+  }
+
+  .party-block {
+    margin-bottom: 1em;
+    padding-left: 1.5em;
+  }
+
+  .party-block .name {
+    font-weight: bold;
+  }
+
+  section {
+    margin-bottom: 1.5em;
+  }
+
+  section h2 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 12pt;
+    font-weight: 700;
+    margin-bottom: 0.6em;
+    color: #222;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  section p {
+    margin-bottom: 0.7em;
+    text-align: justify;
+  }
+
+  section ol {
+    margin-left: 1.5em;
+    margin-bottom: 0.7em;
+  }
+
+  section ol li {
+    margin-bottom: 0.4em;
+    text-align: justify;
+  }
+
+  section ul {
+    margin-left: 1.5em;
+    margin-bottom: 0.7em;
+    list-style-type: disc;
+  }
+
+  section ul li {
+    margin-bottom: 0.3em;
+  }
+
+  .clause-number {
+    font-weight: bold;
+    margin-right: 0.3em;
+  }
+
+  .defined-term {
+    font-weight: bold;
+  }
+
+  .signature-section {
+    page-break-before: always;
+    margin-top: 3em;
+  }
+
+  .signature-section h2 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 12pt;
+    font-weight: 700;
+    margin-bottom: 1.5em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .signature-preamble {
+    margin-bottom: 2em;
+    text-align: justify;
+  }
+
+  .signature-blocks {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 2em;
+  }
+
+  .signature-block {
+    width: 45%;
+  }
+
+  .signature-block .party-title {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-weight: 700;
+    font-size: 10pt;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2.5em;
+    color: #333;
+  }
+
+  .signature-line {
+    margin-bottom: 1.8em;
+  }
+
+  .signature-line .line {
+    border-bottom: 1px solid #333;
+    height: 1.5em;
+    margin-bottom: 0.2em;
+  }
+
+  .signature-line .label {
+    font-size: 9pt;
+    color: #555;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+
+  .schedule {
+    margin-top: 2em;
+    padding-top: 1em;
+    border-top: 1px solid #ccc;
+  }
+
+  .schedule h3 {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 11pt;
+    font-weight: 700;
+    margin-bottom: 0.8em;
+    text-transform: uppercase;
+  }
+
+  .schedule-field {
+    margin-bottom: 1em;
+  }
+
+  .schedule-field .field-label {
+    font-weight: bold;
+    font-size: 10pt;
+    margin-bottom: 0.2em;
+  }
+
+  .schedule-field .field-value {
+    padding: 0.4em 0;
+    border-bottom: 1px dotted #999;
+    min-height: 1.5em;
+  }
+</style>
+</head>
+<body>
+
+<div class="document-header">
+  <h1>Non-Disclosure and<br>Intellectual Property Agreement</h1>
+  <div class="subtitle">Freelancer / Sub-Contractor Agreement</div>
+</div>
+
+<div class="disclaimer">
+  DISCLAIMER: This document was generated from a template and does not constitute legal advice.
+  It should be reviewed by a qualified legal professional before execution.
+</div>
+
+<div class="effective-date">
+  <strong>Effective Date:</strong> ___________________
+</div>
+
+<!-- PARTIES -->
+<section>
+  <h2>1. Parties</h2>
+  <p>This Non-Disclosure and Intellectual Property Agreement (the <span class="defined-term">"Agreement"</span>) is entered into as of the Effective Date stated above, by and between:</p>
+
+  <div class="party-block">
+    <p><span class="party-label">Disclosing Party:</span></p>
+    <p class="name">EricTech Solutions Inc.</p>
+    <p>Edmonton, Alberta, Canada</p>
+    <p>(hereinafter referred to as the <span class="defined-term">"Company"</span>)</p>
+  </div>
+
+  <div class="party-block">
+    <p><span class="party-label">Receiving Party:</span></p>
+    <p class="name">___________________</p>
+    <p>___________________</p>
+    <p>(hereinafter referred to as the <span class="defined-term">"Freelancer"</span>)</p>
+  </div>
+
+  <p>The Company and the Freelancer are individually referred to as a <span class="defined-term">"Party"</span> and collectively as the <span class="defined-term">"Parties."</span></p>
+</section>
+
+<!-- RECITALS -->
+<section>
+  <h2>2. Background and Recitals</h2>
+  <p><strong>WHEREAS</strong> the Company has engaged or intends to engage the Freelancer to perform certain services as a sub-contractor (the <span class="defined-term">"Services"</span>);</p>
+  <p><strong>WHEREAS</strong> in the course of performing the Services, the Freelancer may have access to or become acquainted with confidential and proprietary information belonging to the Company and/or its clients;</p>
+  <p><strong>WHEREAS</strong> the Company is bound by confidentiality and intellectual property obligations to its own clients, and the Freelancer's obligations under this Agreement are necessary to ensure compliance with those upstream commitments;</p>
+  <p><strong>NOW, THEREFORE,</strong> in consideration of the mutual covenants and agreements set forth herein, and for other good and valuable consideration, the receipt and sufficiency of which are hereby acknowledged, the Parties agree as follows:</p>
+</section>
+
+<!-- DEFINITION OF CONFIDENTIAL INFORMATION -->
+<section>
+  <h2>3. Definition of Confidential Information</h2>
+  <p><span class="clause-number">3.1</span> <span class="defined-term">"Confidential Information"</span> means any and all information, whether written, oral, electronic, visual, or in any other form, that is disclosed by or on behalf of the Company to the Freelancer, or that the Freelancer obtains, observes, or has access to in connection with the Services, including but not limited to:</p>
+  <ol type="a">
+    <li>Client data, client records, and client identities;</li>
+    <li>Business processes, strategies, plans, and methodologies;</li>
+    <li>Technical specifications, source code, algorithms, and software architecture;</li>
+    <li>API keys, credentials, passwords, and access tokens;</li>
+    <li>Databases, data models, and data pipelines;</li>
+    <li>Financial information, pricing, and cost structures;</li>
+    <li>Marketing plans, product roadmaps, and business development strategies;</li>
+    <li>Employee and contractor information;</li>
+    <li>Any information designated as confidential or that a reasonable person would understand to be confidential given the nature of the information and circumstances of disclosure.</li>
+  </ol>
+
+  <p><span class="clause-number">3.2</span> Confidential Information does <strong>not</strong> include information that:</p>
+  <ol type="a">
+    <li>Is or becomes publicly available through no fault or action of the Freelancer;</li>
+    <li>Was rightfully in the Freelancer's possession prior to disclosure by the Company, as evidenced by written records;</li>
+    <li>Is independently developed by the Freelancer without use of or reference to the Confidential Information; or</li>
+    <li>Is disclosed to the Freelancer by a third party who is not under any obligation of confidentiality to the Company.</li>
+  </ol>
+</section>
+
+<!-- NON-DISCLOSURE OBLIGATIONS -->
+<section>
+  <h2>4. Non-Disclosure Obligations</h2>
+  <p><span class="clause-number">4.1</span> The Freelancer shall hold all Confidential Information in strict confidence and shall not, without the prior written consent of the Company, disclose, divulge, reveal, report, publish, transfer, or use any Confidential Information for any purpose other than as strictly necessary to perform the Services.</p>
+
+  <p><span class="clause-number">4.2</span> The Freelancer shall protect the Confidential Information using at least the same degree of care that the Freelancer uses to protect their own confidential information, but in no event less than a reasonable degree of care.</p>
+
+  <p><span class="clause-number">4.3</span> The Freelancer shall not copy or reproduce any Confidential Information except as reasonably necessary for the performance of the Services.</p>
+
+  <p><span class="clause-number">4.4</span> The Freelancer shall immediately notify the Company upon becoming aware of any unauthorized disclosure, use, or loss of Confidential Information.</p>
+
+  <p><span class="clause-number">4.5</span> If the Freelancer is compelled by law, regulation, or legal process to disclose any Confidential Information, the Freelancer shall provide the Company with prompt written notice prior to such disclosure (to the extent legally permitted) and shall cooperate with the Company in seeking a protective order or other appropriate remedy.</p>
+</section>
+
+<!-- INTELLECTUAL PROPERTY -->
+<section>
+  <h2>5. Intellectual Property Assignment</h2>
+  <p><span class="clause-number">5.1</span> <span class="defined-term">"Work Product"</span> means all works, inventions, discoveries, improvements, designs, code, documentation, reports, deliverables, and other materials of any kind created, conceived, developed, or produced by the Freelancer, whether alone or jointly with others, in connection with or arising out of the Services.</p>
+
+  <p><span class="clause-number">5.2</span> The Freelancer acknowledges and agrees that all Work Product shall be considered <strong>work made for hire</strong> to the fullest extent permitted by law. To the extent that any Work Product does not qualify as work made for hire, the Freelancer hereby irrevocably assigns, transfers, and conveys to the Company all right, title, and interest in and to such Work Product, including all intellectual property rights therein.</p>
+
+  <p><span class="clause-number">5.3</span> The Freelancer shall execute any documents and take any actions reasonably requested by the Company to perfect, register, or enforce the Company's rights in the Work Product.</p>
+
+  <p><span class="clause-number">5.4</span> <span class="defined-term">"Background IP"</span> means any intellectual property owned by or licensed to the Freelancer prior to the Effective Date, or developed by the Freelancer independently of the Services. The Freelancer retains all rights to their Background IP.</p>
+
+  <p><span class="clause-number">5.5</span> If any Background IP is incorporated into or necessary for the use of any Work Product, the Freelancer hereby grants to the Company a perpetual, irrevocable, worldwide, royalty-free, non-exclusive license to use, reproduce, modify, distribute, and sublicense such Background IP solely as part of or in connection with the Work Product.</p>
+
+  <p><span class="clause-number">5.6</span> The Freelancer represents and warrants that: (a) the Work Product will be original and will not infringe upon the intellectual property rights of any third party; and (b) the Freelancer has full authority to grant the rights and licenses set forth in this Section.</p>
+</section>
+
+<!-- RETURN OF MATERIALS -->
+<section>
+  <h2>6. Return of Materials</h2>
+  <p><span class="clause-number">6.1</span> Upon the earlier of: (a) the completion of the Services; (b) the termination of the Freelancer's engagement; or (c) the written request of the Company, the Freelancer shall promptly:</p>
+  <ol type="a">
+    <li>Return to the Company all documents, files, records, media, equipment, and other tangible materials containing or relating to Confidential Information;</li>
+    <li>Permanently delete and destroy all electronic copies of Confidential Information in the Freelancer's possession or control, including from personal devices, cloud storage, email accounts, and backup systems; and</li>
+    <li>Provide a written certification to the Company confirming compliance with this Section.</li>
+  </ol>
+
+  <p><span class="clause-number">6.2</span> The Freelancer shall complete the return or destruction of all materials within <strong>five (5) business days</strong> of the triggering event described in Section 6.1.</p>
+</section>
+
+<!-- NON-SOLICITATION -->
+<section>
+  <h2>7. Non-Solicitation</h2>
+  <p><span class="clause-number">7.1</span> During the term of the Freelancer's engagement and for a period of <strong>twelve (12) months</strong> thereafter, the Freelancer shall not, directly or indirectly, solicit, contact, or engage with any client or customer of the Company for the purpose of providing services that are the same as or substantially similar to the Services, except with the prior written consent of the Company.</p>
+
+  <p><span class="clause-number">7.2</span> This restriction applies only to clients or customers with whom the Freelancer had contact or about whom the Freelancer received Confidential Information during the course of the engagement.</p>
+</section>
+
+<!-- TERM -->
+<section>
+  <h2>8. Term</h2>
+  <p><span class="clause-number">8.1</span> This Agreement shall become effective as of the Effective Date and shall remain in force for the duration of the Freelancer's engagement with the Company.</p>
+
+  <p><span class="clause-number">8.2</span> Notwithstanding the termination or expiration of this Agreement or the Freelancer's engagement, the obligations under <strong>Sections 3, 4, 5, and 6</strong> (Confidential Information, Non-Disclosure, Intellectual Property, and Return of Materials) shall <strong>survive indefinitely</strong>.</p>
+
+  <p><span class="clause-number">8.3</span> The obligations under <strong>Section 7</strong> (Non-Solicitation) shall survive for the period specified therein.</p>
+</section>
+
+<!-- REMEDIES -->
+<section>
+  <h2>9. Remedies</h2>
+  <p><span class="clause-number">9.1</span> The Freelancer acknowledges that any breach or threatened breach of this Agreement may cause the Company irreparable harm for which monetary damages would be an inadequate remedy.</p>
+
+  <p><span class="clause-number">9.2</span> In the event of any such breach or threatened breach, the Company shall be entitled to seek injunctive relief, specific performance, and any other equitable remedies available at law or in equity, without the necessity of proving actual damages or posting a bond or other security.</p>
+
+  <p><span class="clause-number">9.3</span> The remedies set forth in this Section are cumulative and are in addition to any other remedies available to the Company at law or in equity, including the recovery of damages.</p>
+</section>
+
+<!-- GOVERNING LAW -->
+<section>
+  <h2>10. Governing Law</h2>
+  <p><span class="clause-number">10.1</span> This Agreement shall be governed by and construed in accordance with the laws of the <strong>Province of Alberta</strong> and the federal laws of Canada applicable therein, without regard to conflict of law principles.</p>
+
+  <p><span class="clause-number">10.2</span> The Parties hereby submit to the exclusive jurisdiction of the courts of the Province of Alberta for any legal proceedings arising out of or relating to this Agreement.</p>
+</section>
+
+<!-- DISPUTE RESOLUTION -->
+<section>
+  <h2>11. Dispute Resolution</h2>
+  <p><span class="clause-number">11.1</span> In the event of any dispute arising out of or relating to this Agreement, the Parties shall first attempt to resolve the dispute through good faith negotiation within <strong>fourteen (14) days</strong> of written notice of the dispute.</p>
+
+  <p><span class="clause-number">11.2</span> If the dispute is not resolved through negotiation, the Parties agree to submit the dispute to mediation administered in accordance with the rules of the <strong>ADR Institute of Alberta</strong>, before resorting to arbitration or litigation.</p>
+
+  <p><span class="clause-number">11.3</span> The costs of mediation shall be shared equally between the Parties, unless the mediator directs otherwise.</p>
+
+  <p><span class="clause-number">11.4</span> Nothing in this Section shall prevent either Party from seeking injunctive or other equitable relief as described in Section 9.</p>
+</section>
+
+<!-- GENERAL PROVISIONS -->
+<section>
+  <h2>12. General Provisions</h2>
+  <p><span class="clause-number">12.1</span> <span class="defined-term">Severability.</span> If any provision of this Agreement is held to be invalid, illegal, or unenforceable, the remaining provisions shall continue in full force and effect. The invalid provision shall be modified to the minimum extent necessary to make it valid and enforceable while preserving its original intent.</p>
+
+  <p><span class="clause-number">12.2</span> <span class="defined-term">Entire Agreement.</span> This Agreement constitutes the entire agreement between the Parties with respect to the subject matter hereof and supersedes all prior and contemporaneous agreements, understandings, negotiations, and discussions, whether oral or written.</p>
+
+  <p><span class="clause-number">12.3</span> <span class="defined-term">Amendment.</span> This Agreement may not be amended, modified, or supplemented except by a written instrument signed by both Parties.</p>
+
+  <p><span class="clause-number">12.4</span> <span class="defined-term">Waiver.</span> The failure of either Party to enforce any provision of this Agreement shall not constitute a waiver of that Party's right to enforce that provision or any other provision in the future.</p>
+
+  <p><span class="clause-number">12.5</span> <span class="defined-term">Assignment.</span> The Freelancer may not assign or transfer this Agreement or any rights or obligations hereunder without the prior written consent of the Company. The Company may assign this Agreement to any successor or affiliate without the Freelancer's consent.</p>
+
+  <p><span class="clause-number">12.6</span> <span class="defined-term">Notices.</span> Any notice required or permitted under this Agreement shall be in writing and shall be deemed delivered when sent by email to the addresses provided by the Parties, or when delivered personally or by registered mail.</p>
+
+  <p><span class="clause-number">12.7</span> <span class="defined-term">Independent Contractor.</span> Nothing in this Agreement shall create or be deemed to create an employment, partnership, joint venture, or agency relationship between the Parties. The Freelancer is and shall remain an independent contractor.</p>
+</section>
+
+<!-- SIGNATURES -->
+<div class="signature-section">
+  <h2>13. Execution</h2>
+  <p class="signature-preamble"><strong>IN WITNESS WHEREOF,</strong> the Parties have executed this Non-Disclosure and Intellectual Property Agreement as of the Effective Date first written above.</p>
+
+  <div class="signature-blocks">
+    <div class="signature-block">
+      <div class="party-title">Disclosing Party (Company)</div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Signature</div>
+      </div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Printed Name</div>
+      </div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Title</div>
+      </div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Date</div>
+      </div>
+
+      <p style="font-size: 10pt; margin-top: 0.5em;"><strong>EricTech Solutions Inc.</strong></p>
+    </div>
+
+    <div class="signature-block">
+      <div class="party-title">Receiving Party (Freelancer)</div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Signature</div>
+      </div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Printed Name</div>
+      </div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Title</div>
+      </div>
+
+      <div class="signature-line">
+        <div class="line"></div>
+        <div class="label">Date</div>
+      </div>
+
+      <p style="font-size: 10pt; margin-top: 0.5em;">&nbsp;</p>
+    </div>
+  </div>
+
+  <!-- SCHEDULE A -->
+  <div class="schedule">
+    <h3>Schedule A — Project Description</h3>
+
+    <div class="schedule-field">
+      <div class="field-label">Project / Scope of Services:</div>
+      <div class="field-value">___________________</div>
+    </div>
+
+    <div class="schedule-field">
+      <div class="field-label">Effective Date:</div>
+      <div class="field-value">___________________</div>
+    </div>
+
+    <div class="schedule-field">
+      <div class="field-label">Company:</div>
+      <div class="field-value">EricTech Solutions Inc., Edmonton, Alberta, Canada</div>
+    </div>
+
+    <div class="schedule-field">
+      <div class="field-label">Freelancer:</div>
+      <div class="field-value">___________________</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
