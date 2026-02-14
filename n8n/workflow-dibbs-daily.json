@@ -1,0 +1,551 @@
+{
+  "name": "DIBBS Daily Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 4 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1M0chYrUmfQCwx3swYRONVRZUbrbacR_2yaLSdkf_J1Y"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "All Opportunities"
+        },
+        "options": {}
+      },
+      "id": "get-existing",
+      "name": "Get Existing Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ShaTiAkZxkP4SReU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "id": "aggregate-for-scrape",
+      "name": "Aggregate for Scrape",
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [330, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-d9a0e.up.railway.app/api/scrape-nsns-by-date",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "some-random-secret-string"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ date: $now.setZone('America/New_York').toFormat('MM-dd-yyyy'), maxPages: 5 }) }}",
+        "options": {
+          "timeout": 300000,
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 15000
+          }
+        }
+      },
+      "id": "scrape-dibbs",
+      "name": "DIBBS: Scrape NSNs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 0],
+      "settings": {
+        "continueOnFail": true
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-nsns-array",
+              "leftValue": "={{ $json.nsns }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dibbs-check-success",
+      "name": "DIBBS: Check Success",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "nsns",
+        "options": {}
+      },
+      "id": "split-nsns",
+      "name": "Split NSNs",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const splitItems = $input.all();\nconst existingRows = $('Get Existing Rows').all();\n\n// Build Set of NSNs already in the sheet\nconst existingNsns = new Set();\nfor (const row of existingRows) {\n  const nsn = String(row.json['NSN'] || '').trim();\n  if (nsn) existingNsns.add(nsn);\n}\n\n// Deduplicate within list + filter out NSNs already in sheet\nconst seenNsns = new Set();\nconst filtered = [];\nfor (const item of splitItems) {\n  const nsn = String(item.json.nsn || '').trim();\n  if (!nsn || existingNsns.has(nsn) || seenNsns.has(nsn)) continue;\n  seenNsns.add(nsn);\n  filtered.push(item);\n}\n\nreturn filtered;"
+      },
+      "id": "filter-known-nsns",
+      "name": "Filter Known NSNs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split NSNs into chunks of 5 for batch processing\nconst items = $input.all();\nconst nsns = items.map(item => String(item.json.nsn || '').trim()).filter(Boolean);\n\nif (nsns.length === 0) {\n  return [{ json: { _noData: true } }];\n}\n\n// Create chunks of 5\nconst chunks = [];\nfor (let i = 0; i < nsns.length; i += 5) {\n  chunks.push(nsns.slice(i, i + 5));\n}\n\nreturn chunks.map(chunk => ({ json: { nsns: chunk, chunkSize: chunk.length } }));"
+      },
+      "id": "chunk-nsns",
+      "name": "Chunk NSNs (5 each)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "check-has-nsns",
+              "leftValue": "={{ $json._noData }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "notTrue"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-new-nsns",
+      "name": "Has New NSNs?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-over-chunks",
+      "name": "Loop Over Chunks",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1760, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-d9a0e.up.railway.app/api/scrape-nsns-suppliers-batch",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "some-random-secret-string"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ nsns: $json.nsns, maxSuppliers: 5 }) }}",
+        "options": {
+          "timeout": 600000,
+          "retry": {
+            "maxTries": 2,
+            "waitBetweenTries": 15000
+          }
+        }
+      },
+      "id": "batch-scrape-suppliers",
+      "name": "DIBBS: Batch Scrape Suppliers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1980, 0],
+      "settings": {
+        "continueOnFail": true
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const existingRows = $('Get Existing Rows').all();\nconst existingIds = new Set(\n  existingRows.map(r => String(r.json['Unique ID'] || '').trim()).filter(Boolean)\n);\n\nconst triggeredAt = DateTime.now().setZone('America/Los_Angeles').toFormat('yyyy-MM-dd HH:mm:ss') + ' PT';\n\n// Process all batch results (may come from multiple chunks)\nconst allItems = $input.all();\nconst rows = [];\n\nfor (const item of allItems) {\n  const data = item.json;\n  const batchResults = Array.isArray(data.results) ? data.results : [];\n  if (batchResults.length === 0 || data.error || data.statusCode >= 400) continue;\n\n  for (const nsnResult of batchResults) {\n    if (nsnResult.status !== 'success') continue;\n    const suppliers = Array.isArray(nsnResult.suppliers) ? nsnResult.suppliers : [];\n\n    for (const supplier of suppliers) {\n      const uniqueId = 'DIBBS-' + (nsnResult.nsn || '') + '-' + (supplier.cageCode || '');\n\n      if (!nsnResult.nsn) continue;\n      if (existingIds.has(uniqueId)) continue;\n      existingIds.add(uniqueId);\n\n      rows.push({\n        json: {\n          'Unique ID': uniqueId,\n          Source: 'DIBBS',\n          NSN: nsnResult.nsn,\n          'Part Number': supplier.partNumber || '',\n          QTY: 0,\n          Description: nsnResult.nomenclature || '',\n          'Supplier Name': supplier.companyName || '',\n          'Cage Code': supplier.cageCode || '',\n          Email: supplier.email || '',\n          Phone: supplier.phone || '',\n          Confidence: supplier.confidence || '',\n          Status: 'New',\n          'Date Added': $now.toFormat('yyyy-MM-dd'),\n          'Triggered At': triggeredAt\n        }\n      });\n    }\n  }\n}\n\nreturn rows.length > 0 ? rows : [{ json: { _noData: true } }];"
+      },
+      "id": "process-all-results",
+      "name": "Process All Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-has-rows",
+              "leftValue": "={{ $json._noData }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "notTrue"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-new-rows",
+      "name": "Has New Rows?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2420, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1M0chYrUmfQCwx3swYRONVRZUbrbacR_2yaLSdkf_J1Y"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "All Opportunities"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "append-sheets",
+      "name": "Append to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [2640, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ShaTiAkZxkP4SReU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'DIBBS scrape failed: ' + ($json.error || $json.message || 'API returned no nsns array') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "scrape-error",
+      "name": "Scrape Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [880, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "skipped"
+            },
+            {
+              "name": "message",
+              "value": "No new NSNs found after dedup filtering"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no-new-nsns",
+      "name": "No New NSNs",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1760, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "skipped"
+            },
+            {
+              "name": "message",
+              "value": "No new supplier rows to append after processing batch results"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no-new-rows",
+      "name": "No New Rows",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [2640, 200]
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Existing Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Rows": {
+      "main": [
+        [
+          {
+            "node": "Aggregate for Scrape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate for Scrape": {
+      "main": [
+        [
+          {
+            "node": "DIBBS: Scrape NSNs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DIBBS: Scrape NSNs": {
+      "main": [
+        [
+          {
+            "node": "DIBBS: Check Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DIBBS: Check Success": {
+      "main": [
+        [
+          {
+            "node": "Split NSNs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Scrape Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split NSNs": {
+      "main": [
+        [
+          {
+            "node": "Filter Known NSNs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Known NSNs": {
+      "main": [
+        [
+          {
+            "node": "Chunk NSNs (5 each)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chunk NSNs (5 each)": {
+      "main": [
+        [
+          {
+            "node": "Has New NSNs?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New NSNs?": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No New NSNs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Chunks": {
+      "main": [
+        [
+          {
+            "node": "DIBBS: Batch Scrape Suppliers",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Process All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DIBBS: Batch Scrape Suppliers": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Chunks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process All Results": {
+      "main": [
+        [
+          {
+            "node": "Has New Rows?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has New Rows?": {
+      "main": [
+        [
+          {
+            "node": "Append to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No New Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 10800000
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "variables": []
+}

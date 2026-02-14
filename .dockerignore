@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env
+.git/
+output/
+results/
+*.csv
+*.json
+.devcontainer/
+.streamlit/secrets.toml

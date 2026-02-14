@@ -1,0 +1,10 @@
+{
+    "stage": "Quote Received",
+    "stages": [
+        "Outreach Sent",
+        "Quote Received",
+        "Substitute y/n",
+        "Send",
+        "Not Yet"
+    ]
+}

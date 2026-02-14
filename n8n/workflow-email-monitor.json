@@ -1,0 +1,424 @@
+{
+  "name": "Email Monitor & Auto-Classify",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "options": {
+          "unseen": true,
+          "customEmailConfig": "={{ $env.EMAIL_ADDRESS }}"
+        }
+      },
+      "id": "imap-read",
+      "name": "Read New Emails",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [220, 0],
+      "credentials": {
+        "imap": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "Email Monitor"
+        },
+        "options": {}
+      },
+      "id": "get-processed",
+      "name": "Get Processed Emails",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [220, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build thread from email for LLM classification\n// Also extract Message-ID for dedup tracking\nconst items = $input.all();\nconst processedEmails = $('Get Processed Emails').all();\n\n// Build set of already-processed Message-IDs\nconst processedIds = new Set(\n  processedEmails.map(r => String(r.json['Message-ID'] || '').trim()).filter(Boolean)\n);\n\nconst results = [];\n\nfor (const item of items) {\n  const email = item.json;\n  const messageId = email.messageId || email.headers?.['message-id'] || '';\n  \n  // Skip already-processed emails\n  if (messageId && processedIds.has(messageId)) continue;\n  \n  const from = email.from?.text || email.from || '';\n  const subject = email.subject || '';\n  const body = email.text || email.html || '';\n  \n  // Determine if this is from us or supplier\n  const isFromUs = from.includes($env.EMAIL_ADDRESS || '');\n  \n  // Truncate at last newline before 3000 chars to avoid cutting mid-sentence\n  let truncatedBody = body;\n  if (body.length > 3000) {\n    const lastNewline = body.lastIndexOf('\\n', 3000);\n    truncatedBody = lastNewline > 0 ? body.substring(0, lastNewline) : body.substring(0, 3000);\n  }\n  \n  results.push({\n    json: {\n      thread: [\n        {\n          from: isFromUs ? 'us' : 'supplier',\n          body: truncatedBody\n        }\n      ],\n      originalEmail: {\n        messageId: messageId,\n        from: from,\n        subject: subject,\n        date: email.date || '',\n        hasAttachments: (email.attachments || []).length > 0\n      }\n    }\n  });\n}\n\nreturn results.length > 0 ? results : [];"
+      },
+      "id": "build-thread",
+      "name": "Build Thread",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RFQ_API_BASE_URL + '/api/classify-thread' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.RFQ_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ thread: $json.thread }) }}",
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "maxTries": 2,
+            "waitBetweenTries": 3000
+          }
+        }
+      },
+      "id": "classify-thread",
+      "name": "Classify Thread",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [660, 0],
+      "settings": {
+        "continueOnFail": true
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "classify-ok",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "classify-ok",
+      "name": "Classify OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RFQ_API_BASE_URL + '/api/draft-reply' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.RFQ_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ thread: $('Build Thread').item.json.thread, stage: $json.stage }) }}",
+        "options": {
+          "timeout": 30000,
+          "retry": {
+            "maxTries": 2,
+            "waitBetweenTries": 3000
+          }
+        }
+      },
+      "id": "draft-reply",
+      "name": "Draft Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 0],
+      "settings": {
+        "continueOnFail": true
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "draft-ok",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "draft-ok",
+      "name": "Draft OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine classification + draft into a Sheet row\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const classification = $('Classify Thread').item.json;\n  const draft = item.json;\n  const original = $('Build Thread').item.json.originalEmail;\n  \n  results.push({\n    json: {\n      'Message-ID': original.messageId || '',\n      'From': original.from || '',\n      'Subject': original.subject || '',\n      'Received Date': original.date || '',\n      'Has Attachments': original.hasAttachments ? 'Yes' : 'No',\n      'Stage': classification.stage || 'Not Yet',\n      'Draft Reply': draft.draft || '',\n      'Classified At': $now.toFormat('yyyy-MM-dd HH:mm:ss')\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "format-output",
+      "name": "Format Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "Email Monitor"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "google-sheets",
+      "name": "Append to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [1760, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'Classify Thread failed: ' + ($json.error || $json.message || 'HTTP ' + ($json.statusCode || 'unknown')) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "classify-error",
+      "name": "Classify Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'Draft Reply failed: ' + ($json.error || $json.message || 'HTTP ' + ($json.statusCode || 'unknown')) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "draft-error",
+      "name": "Draft Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1540, 200]
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Read New Emails",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Processed Emails",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read New Emails": {
+      "main": [
+        [
+          {
+            "node": "Build Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Processed Emails": {
+      "main": [
+        [
+          {
+            "node": "Build Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Thread": {
+      "main": [
+        [
+          {
+            "node": "Classify Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Thread": {
+      "main": [
+        [
+          {
+            "node": "Classify OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify OK?": {
+      "main": [
+        [
+          {
+            "node": "Draft Reply",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Classify Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft Reply": {
+      "main": [
+        [
+          {
+            "node": "Draft OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft OK?": {
+      "main": [
+        [
+          {
+            "node": "Format Output",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Draft Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Output": {
+      "main": [
+        [
+          {
+            "node": "Append to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 300000
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "variables": []
+}

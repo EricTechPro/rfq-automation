@@ -1,0 +1,297 @@
+{
+  "name": "Alberta Purchasing Daily Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-d9a0e.up.railway.app/api/search-alberta-purchasing",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "some-random-secret-string"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"daysBack\": 1, \"maxResults\": 25, \"enrichContacts\": true}",
+        "options": {
+          "timeout": 300000,
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 10000
+          }
+        }
+      },
+      "id": "search-apc",
+      "name": "APC: Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 0],
+      "settings": {
+        "continueOnFail": true,
+        "executeOnce": true
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst triggeredAt = DateTime.now().setZone('America/Los_Angeles').toFormat('yyyy-MM-dd HH:mm:ss') + ' PT';\nconst rows = [];\nconst errors = [];\nconst seen = new Set();\nlet totalCount = 0;\nlet dupeCount = 0;\nlet emptyRefCount = 0;\nfor (const item of items) {\n  const data = item.json;\n  if (!data || data.error || data.statusCode >= 400) {\n    const errMsg = data ? (data.error || data.message || 'HTTP ' + (data.statusCode || 'unknown')) : 'Empty response';\n    errors.push({ json: { _error: true, errorMessage: 'API call failed: ' + errMsg, triggeredAt: triggeredAt } });\n    continue;\n  }\n  const opportunities = Array.isArray(data.opportunities) ? data.opportunities : [];\n  for (const o of opportunities) {\n    totalCount++;\n    const ref = o.referenceNumber || '';\n    if (!ref) { emptyRefCount++; continue; }\n    if (seen.has(ref)) { dupeCount++; continue; }\n    seen.add(ref);\n    rows.push({\n      json: {\n        'Unique ID': 'APC-' + ref,\n        Source: 'Alberta Purchasing',\n        Title: o.title || '',\n        'Reference #': ref,\n        Organization: o.organization || '',\n        'Published Date': o.publishedDate || '',\n        'Closing Date': o.closingDate || '',\n        'Source URL': o.sourceUrl || '',\n        'Contact Name': o.contactName || '',\n        Email: o.contactEmail || '',\n        Phone: o.contactPhone || '',\n        Status: 'New',\n        'Date Added': $now.toFormat('yyyy-MM-dd'),\n        'Triggered At': triggeredAt\n      }\n    });\n  }\n}\nconsole.log('APC Flatten: ' + rows.length + ' unique rows from ' + totalCount + ' raw (' + dupeCount + ' dupes, ' + emptyRefCount + ' empty refs dropped)');\nconst dataOutput = rows.length > 0 ? rows : [{ json: { _empty: true } }];\nif (errors.length > 0) {\n  console.log('ERROR: ' + errors.map(e => e.json.errorMessage).join('; '));\n}\nreturn dataOutput;"
+      },
+      "id": "flatten-apc",
+      "name": "APC: Flatten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "filter-empty",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-empty",
+      "name": "Filter Empty",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const REQUIRED = ['Unique ID', 'Source', 'Status', 'Date Added'];\nconst valid = [];\n\nfor (const item of $input.all()) {\n  const missing = REQUIRED.filter(col => !item.json[col]);\n  if (missing.length > 0) {\n    console.log('Dropping row – missing required fields: ' + missing.join(', ') +\n      ' | row keys: ' + Object.keys(item.json).join(', '));\n    continue;\n  }\n  valid.push(item);\n}\n\nif (valid.length === 0) {\n  console.log('Normalize Columns: all rows dropped (0 valid)');\n}\n\nreturn valid.length > 0 ? valid : [];"
+      },
+      "id": "normalize-columns",
+      "name": "Normalize Columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1M0chYrUmfQCwx3swYRONVRZUbrbacR_2yaLSdkf_J1Y"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "All Opportunities"
+        },
+        "options": {}
+      },
+      "id": "get-existing",
+      "name": "Get Existing Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ShaTiAkZxkP4SReU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const newItems = $('Normalize Columns').all();\nconst existingRows = $('Get Existing Rows').all();\nconst uniqueKey = 'Unique ID';\n\nconst existingIds = new Set(\n  existingRows.map(r => String(r.json[uniqueKey] || '').trim()).filter(Boolean)\n);\n\nreturn newItems.filter(item => {\n  const id = String(item.json[uniqueKey] || '').trim();\n  return id && !existingIds.has(id);\n});"
+      },
+      "id": "dedup-filter",
+      "name": "Dedup & Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1M0chYrUmfQCwx3swYRONVRZUbrbacR_2yaLSdkf_J1Y"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "All Opportunities"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "append-sheets",
+      "name": "Append to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [1620, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ShaTiAkZxkP4SReU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "completed"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'Alberta Purchasing scraper done. ' + $input.all().length + ' new rows added.' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-success",
+      "name": "Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1840, 0]
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Existing Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "APC: Search": {
+      "main": [
+        [
+          {
+            "node": "APC: Flatten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "APC: Flatten": {
+      "main": [
+        [
+          {
+            "node": "Filter Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Empty": {
+      "main": [
+        [
+          {
+            "node": "Normalize Columns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Columns": {
+      "main": [
+        [
+          {
+            "node": "Dedup & Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Rows": {
+      "main": [
+        [
+          {
+            "node": "APC: Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup & Filter": {
+      "main": [
+        [
+          {
+            "node": "Append to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Sheets": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 600000
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "variables": []
+}

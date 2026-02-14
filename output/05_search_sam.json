@@ -1,0 +1,9 @@
+{
+    "source": "sam_gov",
+    "totalPages": 0,
+    "pagesScraped": 0,
+    "totalOpportunities": 0,
+    "opportunities": [],
+    "scrapedAt": "2026-02-12T06:43:12.828353Z",
+    "error": "SAM.gov scraping failed: Chromium not installed. Run: python3 -m playwright install chromium"
+}

@@ -1,0 +1,245 @@
+{
+  "name": "Email Outreach Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "event": "row_added",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "options": {
+          "pollInterval": 60
+        }
+      },
+      "id": "sheet-trigger",
+      "name": "New Row Trigger",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-email",
+              "leftValue": "={{ $json.Email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "status-approved",
+              "leftValue": "={{ $json.Status }}",
+              "rightValue": "Approved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-draft",
+              "leftValue": "={{ $json['Email Draft'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-ready",
+      "name": "Ready to Send?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Unique ID",
+              "lookupValue": "={{ $json['Unique ID'] }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "Status",
+              "fieldValue": "Sending"
+            },
+            {
+              "column": "Email Sent Date",
+              "fieldValue": "={{ $now.toFormat('yyyy-MM-dd HH:mm') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "update-status",
+      "name": "Update Sheet Status",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.EMAIL_ADDRESS }}",
+        "toEmail": "={{ $('Ready to Send?').item.json.Email }}",
+        "subject": "={{ 'Quote Request - ' + ($('Ready to Send?').item.json['Part Number'] || $('Ready to Send?').item.json.NSN || 'Parts Inquiry') }}",
+        "text": "={{ $('Ready to Send?').item.json['Email Draft'] }}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Outreach Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [660, 0],
+      "credentials": {
+        "smtp": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "Unique ID",
+              "lookupValue": "={{ $('Ready to Send?').item.json['Unique ID'] }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "values": [
+            {
+              "column": "Status",
+              "fieldValue": "Outreach Sent"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "confirm-sent",
+      "name": "Confirm Sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [880, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    }
+  ],
+  "connections": {
+    "New Row Trigger": {
+      "main": [
+        [
+          {
+            "node": "Ready to Send?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ready to Send?": {
+      "main": [
+        [
+          {
+            "node": "Update Sheet Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Sheet Status": {
+      "main": [
+        [
+          {
+            "node": "Send Outreach Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Outreach Email": {
+      "main": [
+        [
+          {
+            "node": "Confirm Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 300000
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "variables": []
+}

@@ -1,0 +1,11 @@
+{
+    "data": {
+        "partNumber": "12345-678",
+        "unitPrice": 12.5,
+        "totalPrice": 625.0,
+        "quantity": 50,
+        "leadTime": "30 days",
+        "currency": "USD",
+        "notes": null
+    }
+}

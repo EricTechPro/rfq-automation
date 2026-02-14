@@ -1,0 +1,297 @@
+{
+  "name": "SAM.gov Daily Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 1 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://web-production-d9a0e.up.railway.app/api/search-sam",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "some-random-secret-string"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"daysBack\": 1, \"maxPages\": 1, \"enrichContacts\": true}",
+        "options": {
+          "timeout": 300000,
+          "retry": {
+            "maxTries": 3,
+            "waitBetweenTries": 10000
+          }
+        }
+      },
+      "id": "search-sam",
+      "name": "SAM.gov: Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [440, 0],
+      "settings": {
+        "continueOnFail": true,
+        "executeOnce": true
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst triggeredAt = DateTime.now().setZone('America/Los_Angeles').toFormat('yyyy-MM-dd HH:mm:ss') + ' PT';\nconst rows = [];\nconst errors = [];\nfor (const item of items) {\n  const data = item.json;\n  // Guard: route HTTP error items to error output\n  if (!data || data.error || data.statusCode >= 400) {\n    const errMsg = data ? (data.error || data.message || 'HTTP ' + (data.statusCode || 'unknown')) : 'Empty response';\n    errors.push({ json: { _error: true, errorMessage: 'API call failed: ' + errMsg, triggeredAt: triggeredAt } });\n    continue;\n  }\n  const opportunities = Array.isArray(data.opportunities) ? data.opportunities : [];\n  for (const opp of opportunities) {\n    const contact = Array.isArray(opp.pointOfContact) ? (opp.pointOfContact[0] || {}) : {};\n    rows.push({\n      json: {\n        'Unique ID': 'SAM-' + (opp.noticeId || opp.solicitationNumber || ''),\n        Source: 'SAM.gov',\n        Title: opp.title || '',\n        'Solicitation #': opp.solicitationNumber || '',\n        Agency: opp.agency || opp.department || '',\n        'Posted Date': (opp.postedDate || '').substring(0, 10),\n        Deadline: (opp.responseDeadline || '').substring(0, 10),\n        'Contact Name': contact.name || '',\n        Email: contact.email || '',\n        Phone: contact.phone || '',\n        'Source URL': opp.sourceUrl || '',\n        Status: 'New',\n        'Date Added': $now.toFormat('yyyy-MM-dd'),\n        'Triggered At': triggeredAt\n      }\n    });\n  }\n}\nconst dataOutput = rows.length > 0 ? rows : [{ json: { _empty: true } }];\nif (errors.length > 0) {\n  console.log('ERROR: ' + errors.map(e => e.json.errorMessage).join('; '));\n}\nreturn dataOutput;"
+      },
+      "id": "flatten-sam",
+      "name": "SAM.gov: Flatten",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "filter-empty",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-empty",
+      "name": "Filter Empty",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const REQUIRED = ['Unique ID', 'Source', 'Status', 'Date Added'];\nconst valid = [];\n\nfor (const item of $input.all()) {\n  const missing = REQUIRED.filter(col => !item.json[col]);\n  if (missing.length > 0) {\n    console.log('Dropping row – missing required fields: ' + missing.join(', ') +\n      ' | row keys: ' + Object.keys(item.json).join(', '));\n    continue;\n  }\n  valid.push(item);\n}\n\nif (valid.length === 0) {\n  console.log('Normalize Columns: all rows dropped (0 valid)');\n}\n\nreturn valid.length > 0 ? valid : [];"
+      },
+      "id": "normalize-columns",
+      "name": "Normalize Columns",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1M0chYrUmfQCwx3swYRONVRZUbrbacR_2yaLSdkf_J1Y"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "All Opportunities"
+        },
+        "options": {}
+      },
+      "id": "get-existing",
+      "name": "Get Existing Rows",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ShaTiAkZxkP4SReU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const newItems = $('Normalize Columns').all();\nconst existingRows = $('Get Existing Rows').all();\nconst uniqueKey = 'Unique ID';\n\nconst existingIds = new Set(\n  existingRows.map(r => String(r.json[uniqueKey] || '').trim()).filter(Boolean)\n);\n\nreturn newItems.filter(item => {\n  const id = String(item.json[uniqueKey] || '').trim();\n  return id && !existingIds.has(id);\n});"
+      },
+      "id": "dedup-filter",
+      "name": "Dedup & Filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1400, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "1M0chYrUmfQCwx3swYRONVRZUbrbacR_2yaLSdkf_J1Y"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "All Opportunities"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "append-sheets",
+      "name": "Append to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [1620, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "ShaTiAkZxkP4SReU",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "completed"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'SAM.gov scraper done. ' + $input.all().length + ' new rows added.' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-success",
+      "name": "Success",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1840, 0]
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Existing Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SAM.gov: Search": {
+      "main": [
+        [
+          {
+            "node": "SAM.gov: Flatten",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SAM.gov: Flatten": {
+      "main": [
+        [
+          {
+            "node": "Filter Empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Empty": {
+      "main": [
+        [
+          {
+            "node": "Normalize Columns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Columns": {
+      "main": [
+        [
+          {
+            "node": "Dedup & Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Rows": {
+      "main": [
+        [
+          {
+            "node": "SAM.gov: Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup & Filter": {
+      "main": [
+        [
+          {
+            "node": "Append to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append to Sheets": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 600000
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "variables": []
+}

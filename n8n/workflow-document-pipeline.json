@@ -1,0 +1,345 @@
+{
+  "name": "Document Intelligence Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "document-trigger",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [0, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-doc-urls",
+              "leftValue": "={{ $json.body.documentUrls.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-documents",
+      "name": "Has Documents?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pass webhook data forward so downstream nodes don't need $('Webhook Trigger') reference\nconst body = $json.body || {};\nconst urls = Array.isArray(body.documentUrls) ? body.documentUrls : [];\n\nreturn urls.map(url => ({\n  json: {\n    documentUrl: url,\n    nsn: body.nsn || '',\n    solicitationNumber: body.solicitationNumber || ''\n  }\n}));"
+      },
+      "id": "split-and-enrich",
+      "name": "Split & Enrich URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "Documents"
+        },
+        "options": {}
+      },
+      "id": "get-existing-docs",
+      "name": "Get Existing Docs",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [440, 200],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Deduplicate: skip URLs already processed\nconst newItems = $('Split & Enrich URLs').all();\nconst existingDocs = $('Get Existing Docs').all();\n\nconst existingUrls = new Set(\n  existingDocs.map(r => String(r.json['Document URL'] || '').trim()).filter(Boolean)\n);\n\nconst filtered = newItems.filter(item => {\n  const url = String(item.json.documentUrl || '').trim();\n  return url && !existingUrls.has(url);\n});\n\nreturn filtered.length > 0 ? filtered : [];"
+      },
+      "id": "dedup-urls",
+      "name": "Dedup URLs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.RFQ_API_BASE_URL + '/api/extract-document' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-API-Key",
+              "value": "={{ $env.RFQ_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ url: $json.documentUrl, extractFields: ['eligibility', 'specs', 'quantity', 'delivery', 'deadlines'] }) }}",
+        "options": {
+          "timeout": 120000,
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          },
+          "retry": {
+            "maxTries": 2,
+            "waitBetweenTries": 5000
+          }
+        }
+      },
+      "id": "extract-document",
+      "name": "Extract Document",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [880, 0],
+      "settings": {
+        "continueOnFail": true
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 400,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-extract-success",
+      "name": "Extract OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine extracted document data into a row for Google Sheets\nconst items = $input.all();\nconst rows = [];\n\nfor (const item of items) {\n  const data = item.json;\n  const parsed = data.parsed || {};\n  \n  rows.push({\n    json: {\n      NSN: data.nsn || item.json.nsn || '',\n      Solicitation: data.solicitationNumber || item.json.solicitationNumber || '',\n      'Document URL': data.url || item.json.documentUrl || '',\n      'Page Count': data.pageCount || 0,\n      Eligibility: parsed.eligibility || '',\n      Specs: parsed.specs || '',\n      Quantity: parsed.quantity || '',\n      Delivery: parsed.delivery || '',\n      Deadlines: parsed.deadlines || '',\n      'Extracted At': $now.toFormat('yyyy-MM-dd HH:mm:ss')\n    }\n  });\n}\n\nreturn rows;"
+      },
+      "id": "format-rows",
+      "name": "Format for Sheets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $env.GOOGLE_SHEET_ID }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "byName",
+          "value": "Documents"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {}
+        },
+        "options": {}
+      },
+      "id": "google-sheets",
+      "name": "Append to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.2,
+      "position": [1540, 0],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "error"
+            },
+            {
+              "name": "message",
+              "value": "={{ 'Document extraction failed: ' + ($json.error || $json.message || 'HTTP ' + ($json.statusCode || 'unknown')) }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-error",
+      "name": "Extract Error",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.3,
+      "position": [1320, 200]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Has Documents?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Documents?": {
+      "main": [
+        [
+          {
+            "node": "Split & Enrich URLs",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get Existing Docs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split & Enrich URLs": {
+      "main": [
+        [
+          {
+            "node": "Dedup URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Existing Docs": {
+      "main": [
+        [
+          {
+            "node": "Dedup URLs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup URLs": {
+      "main": [
+        [
+          {
+            "node": "Extract Document",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Document": {
+      "main": [
+        [
+          {
+            "node": "Extract OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract OK?": {
+      "main": [
+        [
+          {
+            "node": "Format for Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for Sheets": {
+      "main": [
+        [
+          {
+            "node": "Append to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "executionTimeout": 600000
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "variables": []
+}
